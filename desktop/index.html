@@ -31,9 +31,10 @@ html,body{height:100%}
 body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.35;overflow:hidden}
 *{box-sizing:border-box}
 button,select,input{font:inherit;color:inherit}
-.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);gap:10px;
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 14px}
 header.bar{grid-column:1/-1;display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0}
+footer.credit{grid-column:1/-1;font-size:12px;color:var(--muted);text-align:center;margin:-4px 0 0}footer.credit b{color:var(--fg);font-weight:600}footer.credit a{color:inherit}
 .brand{display:flex;align-items:baseline;gap:10px;min-width:0}
 .brand h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
 .brand h1 span{color:var(--sand)}
@@ -110,7 +111,7 @@ input[type=file]{font-size:13px;max-width:100%}
 
 @media (max-width:860px){
   body{overflow:auto}
-  .app{height:auto;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto}
+  .app{height:auto;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto auto}
   .stage{height:62vh;min-height:340px}
   .tools{flex-direction:row;left:8px;right:8px;top:8px;overflow-x:auto;overflow-y:hidden;max-height:none}
   .tools .grp{display:none}
@@ -294,6 +295,7 @@ input[type=file]{font-size:13px;max-width:100%}
       </div>
     </details>
   </aside>
+  <footer class="credit">Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University · <a href="../">About the project</a> · <a href="https://github.com/ShaneM73/virtual-sandbox">GitHub</a></footer>
 </div>
 
 <div class="modal" id="modal" hidden><div class="card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">

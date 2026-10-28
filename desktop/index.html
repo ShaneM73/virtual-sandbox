@@ -1,0 +1,1073 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Virtual AR Sandbox</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one-screen instrument. Sand stage on the left, control desk on the right; on phones the desk stacks under the stage. */
+:root{
+  --bg:#121518;          /* darkened lab room */
+  --desk:#191d21;        /* control desk */
+  --desk-2:#20252b;      /* raised controls */
+  --line:#2c333b;
+  --fg:#e9e4d8;          /* warm paper white */
+  --muted:#98a1aa;
+  --sand:#d8b46a;        /* accent: dry sand */
+  --sand-dim:#8c7442;
+  --water:#58a9e6;
+  --warn:#e2785f;
+  --ok:#7cc493;
+  --f-ui:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;
+  --f-data:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.35;overflow:hidden}
+*{box-sizing:border-box}
+button,select,input{font:inherit;color:inherit}
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);gap:10px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:10px 14px}
+header.bar{grid-column:1/-1;display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0}
+.brand{display:flex;align-items:baseline;gap:10px;min-width:0}
+.brand h1{margin:0;font-size:20px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.brand h1 span{color:var(--sand)}
+.brand p{margin:0;color:var(--muted);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .spacer{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:var(--desk)}
+.seg button{background:none;border:0;padding:6px 12px;cursor:pointer;color:var(--muted);font-weight:600;letter-spacing:.03em}
+.seg button[aria-pressed="true"]{background:var(--desk-2);color:var(--sand)}
+.btn{background:var(--desk-2);border:1px solid var(--line);border-radius:7px;padding:6px 12px;cursor:pointer;font-weight:600;letter-spacing:.02em}
+.btn:hover{border-color:var(--sand-dim)}
+.btn.primary{background:var(--sand);color:#1d1708;border-color:var(--sand)}
+.btn.water{border-color:#2e5877;color:#cfe7fb}
+.btn.water.active,.btn.water:active{background:#1f4766}
+.btn:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:2px solid var(--sand);outline-offset:2px}
+
+/* Stage */
+.stage{position:relative;min-width:0;min-height:0;border-radius:10px;overflow:hidden;border:1px solid var(--line);
+  background:radial-gradient(120% 90% at 50% 35%,#262c33 0%,#15191d 70%)}
+#gl{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+.tools{position:absolute;left:10px;top:10px;display:flex;flex-direction:column;gap:4px;padding:6px;background:rgba(18,21,24,.82);
+  border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(6px);max-height:calc(100% - 20px);overflow:auto}
+.tools .grp{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:6px 4px 2px}
+.tools button{display:flex;align-items:center;gap:8px;background:none;border:1px solid transparent;border-radius:7px;padding:5px 8px;cursor:pointer;text-align:left;white-space:nowrap;color:var(--fg)}
+.tools button svg{width:18px;height:18px;flex:none}
+.tools button kbd{margin-left:auto;font-family:var(--f-data);font-size:10.5px;color:var(--muted)}
+.tools button:hover{background:var(--desk-2)}
+.tools button[aria-pressed="true"]{background:var(--desk-2);border-color:var(--sand-dim);color:var(--sand)}
+.hint{position:absolute;left:50%;transform:translateX(-50%);top:10px;max-width:min(560px,calc(100% - 260px));background:rgba(18,21,24,.82);border:1px solid var(--line);
+  border-radius:8px;padding:6px 12px;font-size:13.5px;color:var(--fg);text-align:center;pointer-events:none}
+.hud{position:absolute;right:10px;bottom:10px;background:rgba(18,21,24,.85);border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+  font-family:var(--f-data);font-size:11.5px;display:grid;grid-template-columns:auto auto;gap:2px 12px;font-variant-numeric:tabular-nums}
+.hud dt{color:var(--muted)} .hud dd{margin:0;text-align:right}
+.legend{position:absolute;left:10px;bottom:10px;white-space:nowrap;background:rgba(18,21,24,.85);border:1px solid var(--line);border-radius:8px;padding:8px 10px 6px;width:290px;max-width:calc(100% - 20px)}
+.legend canvas{display:block;width:100%;height:12px;border-radius:3px}
+.legend .ticks{display:flex;justify-content:space-between;font-family:var(--f-data);font-size:10.5px;color:var(--muted);margin-top:3px}
+.legend .cap{font-size:12px;color:var(--muted);margin-bottom:5px;display:flex;justify-content:space-between;gap:8px}
+.glerr{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--fg);font-size:16px}
+
+/* Desk */
+aside.desk{min-height:0;overflow:auto;background:var(--desk);border:1px solid var(--line);border-radius:10px;padding:4px 0 10px}
+details{border-bottom:1px solid var(--line)}
+details:last-child{border-bottom:0}
+summary{list-style:none;cursor:pointer;padding:10px 14px;font-weight:700;font-size:13px;letter-spacing:.12em;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"";margin-left:auto;width:7px;height:7px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg);transition:transform .15s}
+details[open] summary::after{transform:rotate(-135deg)}
+summary .dot{width:8px;height:8px;border-radius:50%}
+.sec{padding:0 14px 12px;display:grid;gap:10px}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 10px}
+.row label{color:var(--fg);font-size:14px}
+.row output{font-family:var(--f-data);font-size:12px;color:var(--sand);font-variant-numeric:tabular-nums}
+.row input[type=range]{grid-column:1/-1;width:100%;accent-color:var(--sand)}
+.check{display:flex;align-items:center;gap:8px;font-size:14px;cursor:pointer}
+.check input{accent-color:var(--sand);width:16px;height:16px}
+select{width:100%;background:var(--desk-2);border:1px solid var(--line);border-radius:7px;padding:6px 8px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.note{font-size:13px;color:var(--muted);margin:0}
+.note b{color:var(--fg);font-weight:600}
+.score{font-family:var(--f-data);font-size:12.5px;display:flex;gap:14px;flex-wrap:wrap}
+.score span{color:var(--muted)} .score b{color:var(--sand);font-weight:500}
+a{color:var(--water)}
+input[type=file]{font-size:13px;max-width:100%}
+
+/* Modal */
+.modal{position:fixed;inset:0;background:rgba(5,7,9,.7);display:grid;place-items:center;z-index:20;padding:16px}
+.modal .card{background:var(--desk);border:1px solid var(--line);border-radius:12px;max-width:640px;width:100%;max-height:90%;overflow:auto;padding:18px 20px}
+.modal h2{margin:0 0 10px;font-size:18px;letter-spacing:.04em}
+.modal img{display:block;margin:10px auto;image-rendering:pixelated;border:1px solid var(--line);width:100%}
+.modal textarea{width:100%;height:180px;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;font-family:var(--f-data);font-size:11px}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}
+.keys kbd{font-family:var(--f-data);font-size:12px;background:var(--desk-2);border:1px solid var(--line);border-radius:4px;padding:1px 6px;justify-self:start}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--desk-2);border:1px solid var(--sand-dim);border-radius:8px;padding:8px 14px;z-index:30;font-size:14px}
+
+@media (max-width:860px){
+  body{overflow:auto}
+  .app{height:auto;grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto auto}
+  .stage{height:62vh;min-height:340px}
+  .tools{flex-direction:row;left:8px;right:8px;top:8px;overflow-x:auto;overflow-y:hidden;max-height:none}
+  .tools .grp{display:none}
+  .tools button kbd,.tools button .lbl{display:none}
+  .hint{top:62px;max-width:calc(100% - 20px)}
+  .legend{width:178px;white-space:normal}
+  .legend .cap{font-size:11px}
+  .hud{font-size:10.5px}
+  .brand p{display:none}
+}
+@media (prefers-reduced-motion:reduce){summary::after{transition:none}}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand"><h1>Virtual <span>AR</span> Sandbox</h1><p>SARndbox 2.8 water physics, running in your browser</p></div>
+    <div class="spacer"></div>
+    <div class="seg" role="group" aria-label="View">
+      <button id="view3d" aria-pressed="true">3D view</button>
+      <button id="viewProj" aria-pressed="false">Projector view</button>
+    </div>
+    <button class="btn" id="pauseBtn" aria-pressed="false">Pause water</button>
+    <button class="btn" id="helpBtn">Controls</button>
+    <a class="btn" href="../vr/" style="text-decoration:none">VR version</a>
+  </header>
+
+  <main class="stage" id="stage">
+    <canvas id="gl" aria-label="Sandbox. Drag to sculpt or pour water with the selected tool; right-drag to orbit; scroll to zoom."></canvas>
+    <nav class="tools" id="tools" aria-label="Tools">
+      <div class="grp">View</div>
+      <button data-tool="orbit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c3 3 3 13 0 16M12 4c-3 3-3 13 0 16"/></svg><span class="lbl">Orbit</span><kbd>1</kbd></button>
+      <div class="grp">Sand</div>
+      <button data-tool="raise" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 19c4-1 5-9 9-9s5 8 9 9"/><path d="M12 3v5M9.5 5.5 12 3l2.5 2.5"/></svg><span class="lbl">Add sand</span><kbd>2</kbd></button>
+      <button data-tool="dig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9c4 1 5 8 9 8s5-7 9-8"/><path d="M12 3v6M9.5 6.5 12 9l2.5-2.5"/></svg><span class="lbl">Dig</span><kbd>3</kbd></button>
+      <button data-tool="smooth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 15c3-3 6 3 9 0s6 3 9 0"/><path d="M3 9c3-1 6 1 9 0s6 1 9 0"/></svg><span class="lbl">Smooth</span><kbd>4</kbd></button>
+      <button data-tool="flatten"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 13h18"/><path d="M6 9h12l-2-4H8z"/></svg><span class="lbl">Flatten</span><kbd>5</kbd></button>
+      <div class="grp">Water</div>
+      <button data-tool="rain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 13a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 1.5A3.5 3.5 0 0 1 17 13z"/><path d="M8 16l-1 3M12 16l-1 3M16 16l-1 3"/></svg><span class="lbl">Rain here</span><kbd>6</kbd></button>
+      <button data-tool="drain"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v3c0 1.7 3.6 3 8 3s8-1.3 8-3V8M12 14v6M9.5 17.5 12 20l2.5-2.5"/></svg><span class="lbl">Drain here</span><kbd>7</kbd></button>
+      <button data-tool="spring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21c-4 0-6-3-6-6 0-4 6-11 6-11s6 7 6 11c0 3-2 6-6 6z"/><path d="M12 11v6M9 14h6"/></svg><span class="lbl">Place spring</span><kbd>8</kbd></button>
+      <button data-tool="sink"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 7c-3 1-4 4-1 5s2 4-1 5"/></svg><span class="lbl">Place sinkhole</span><kbd>9</kbd></button>
+      <button data-tool="erase"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m7 21 13-13-4-4L3 17l4 4h13"/></svg><span class="lbl">Erase spring/sink</span><kbd>0</kbd></button>
+    </nav>
+    <div class="hint" id="hint">A spring feeds a river that winds down the valley into a lake. Dig a new channel or build a dam.</div>
+    <div class="legend">
+      <div class="cap"><span id="legendTitle">Elevation above sea level</span><span id="legendInt">contours 0.75 cm</span></div>
+      <canvas id="legendBar" width="290" height="12"></canvas>
+      <div class="ticks" id="legendTicks"></div>
+    </div>
+    <dl class="hud" id="hud">
+      <dt>Water</dt><dd id="hWater">–</dd>
+      <dt>Flooded</dt><dd id="hFlood">–</dd>
+      <dt>Max depth</dt><dd id="hMax">–</dd>
+      <dt>Sim time</dt><dd id="hTime">–</dd>
+      <dt>Steps/frame</dt><dd id="hSteps">–</dd>
+      <dt>Probe</dt><dd id="hProbe">–</dd>
+    </dl>
+  </main>
+
+  <aside class="desk" aria-label="Controls">
+    <details open>
+      <summary><span class="dot" style="background:var(--sand)"></span>Sand</summary>
+      <div class="sec">
+        <div class="row"><label for="preset">Landscape</label><span></span>
+          <select id="preset" style="grid-column:1/-1">
+            <option value="river">River valley with lake</option>
+            <option value="hills">Rolling hills</option>
+            <option value="watersheds">Two watersheds</option>
+            <option value="island">Volcanic island</option>
+            <option value="dam">Dam and reservoir</option>
+            <option value="karst">Ozark karst (sinkholes)</option>
+            <option value="flat">Flat sand</option>
+          </select></div>
+        <div class="btns"><button class="btn" id="loadPreset">Reshape sand</button><button class="btn" id="undo" disabled>Undo</button></div>
+        <div class="row"><label for="brushR">Brush size</label><output id="brushRo"></output><input type="range" id="brushR" min="1" max="20" step="0.5" value="6"></div>
+        <div class="row"><label for="brushS">Brush strength</label><output id="brushSo"></output><input type="range" id="brushS" min="0.1" max="3" step="0.1" value="1"></div>
+        <label class="check"><input type="checkbox" id="slump" checked> Sand slumps at its angle of repose</label>
+        <div class="row"><label for="repose">Angle of repose</label><output id="reposeo"></output><input type="range" id="repose" min="20" max="50" step="1" value="34"></div>
+      </div>
+    </details>
+    <details open>
+      <summary><span class="dot" style="background:var(--water)"></span>Water</summary>
+      <div class="sec">
+        <div class="btns">
+          <button class="btn water" id="rainAll" title="Hold, or hold R">Hold to rain</button>
+          <button class="btn water" id="drainAll" title="Hold, or hold D">Hold to drain</button>
+          <button class="btn" id="dryAll">Remove all water</button>
+        </div>
+        <label class="check"><input type="checkbox" id="contRain"> Steady light rain over the whole box</label>
+        <div class="row"><label for="rainRate">Rain strength</label><output id="rainRateo"></output><input type="range" id="rainRate" min="0.05" max="2" step="0.05" value="0.25"></div>
+        <div class="row"><label for="speed">Water speed</label><output id="speedo"></output><input type="range" id="speed" min="-1" max="1" step="0.05" value="0"></div>
+        <div class="row"><label for="atten">Flow damping</label><output id="atteno"></output><input type="range" id="atten" min="-4" max="-0.5" step="0.1" value="-2.1"></div>
+        <div class="row"><label for="evap">Evaporation</label><output id="evapo"></output><input type="range" id="evap" min="0" max="0.05" step="0.001" value="0"></div>
+        <div class="row"><label for="edges">Box edges</label><span></span>
+          <select id="edges" style="grid-column:1/-1"><option value="1">Absorb water (original sandbox)</option><option value="0">Walls hold water</option></select></div>
+        <div class="row"><label for="springRate">Spring flow</label><output id="springRateo"></output><input type="range" id="springRate" min="0.2" max="8" step="0.1" value="3"></div>
+        <div class="row"><label for="sinkRate">Sinkhole drainage</label><output id="sinkRateo"></output><input type="range" id="sinkRate" min="0.2" max="8" step="0.1" value="2"></div>
+      </div>
+    </details>
+    <details>
+      <summary><span class="dot" style="background:#9b7b55"></span>Soil infiltration</summary>
+      <div class="sec">
+        <p class="note">Green–Ampt infiltration: dry sand soaks up rain first, then runoff starts once the soil is wet. Off in the original sandbox.</p>
+        <div class="row"><label for="ks">Permeability K<sub>s</sub></label><output id="kso"></output><input type="range" id="ks" min="0" max="0.2" step="0.005" value="0"></div>
+        <div class="row"><label for="psi">Suction × moisture deficit</label><output id="psio"></output><input type="range" id="psi" min="0.5" max="10" step="0.5" value="3"></div>
+        <label class="check"><input type="checkbox" id="showWet" checked> Darken wet sand</label>
+        <div class="btns"><button class="btn" id="drySoil">Dry out the soil</button></div>
+      </div>
+    </details>
+    <details open>
+      <summary><span class="dot" style="background:#c9c3b6"></span>Display</summary>
+      <div class="sec">
+        <div class="row"><label for="cmap">Color map</label><span></span>
+          <select id="cmap" style="grid-column:1/-1">
+            <option value="sarndbox">SARndbox (original)</option>
+            <option value="hypso">Hypsometric tints</option>
+            <option value="gray">Grayscale</option>
+            <option value="sand">Bare sand</option>
+          </select></div>
+        <label class="check"><input type="checkbox" id="contours" checked> Contour lines</label>
+        <div class="row"><label for="cint">Contour interval</label><output id="cinto"></output><input type="range" id="cint" min="0.25" max="5" step="0.25" value="0.75"></div>
+        <label class="check"><input type="checkbox" id="shade" checked> Hillshading</label>
+        <div class="row"><label for="sea">Sea level</label><output id="seao"></output><input type="range" id="sea" min="-10" max="10" step="0.25" value="0"></div>
+        <label class="check"><input type="checkbox" id="water3d" checked> 3D water surface (3D view)</label>
+        <div class="row"><label for="wcolor">Color water by</label><span></span>
+          <select id="wcolor" style="grid-column:1/-1"><option value="0">Depth</option><option value="1">Flow speed (erosion potential)</option></select></div>
+        <div class="row"><label for="wop">Water opacity</label><output id="wopo"></output><input type="range" id="wop" min="0.25" max="6" step="0.25" value="2"></div>
+        <div class="row"><label for="exag">Vertical exaggeration</label><output id="exago"></output><input type="range" id="exag" min="1" max="4" step="0.25" value="1.5"></div>
+        <label class="check"><input type="checkbox" id="showFeat" checked> Mark springs and sinkholes</label>
+      </div>
+    </details>
+    <details>
+      <summary><span class="dot" style="background:var(--warn)"></span>Match a terrain model</summary>
+      <div class="sec">
+        <p class="note">Like the sandbox's DEM tool: pick a target landscape, then sculpt until the sand matches. <b style="color:var(--warn)">Red</b> means add sand; <b style="color:#7fb2ff">blue</b> means remove sand.</p>
+        <div class="row"><label for="demSel">Target</label><span></span>
+          <select id="demSel" style="grid-column:1/-1">
+            <option value="">None</option>
+            <option value="island">Volcanic island</option>
+            <option value="watersheds">Two watersheds</option>
+            <option value="river">River valley</option>
+            <option value="hills">Rolling hills</option>
+            <option value="file" disabled>Loaded file</option>
+          </select></div>
+        <div class="row"><label for="demScale">Color sensitivity</label><output id="demScaleo"></output><input type="range" id="demScale" min="0.05" max="0.5" step="0.01" value="0.15"></div>
+        <div class="score" id="demScore"><span>Fit</span><b>–</b></div>
+        <div class="row"><label for="demFile">Load elevation file</label><span></span><input type="file" id="demFile" accept=".asc,.txt,.png,.jpg,.jpeg" style="grid-column:1/-1"></div>
+        <div class="row"><label for="demRelief">Relief when loading</label><output id="demReliefo"></output><input type="range" id="demRelief" min="5" max="45" step="1" value="30"></div>
+        <p class="note">Accepts ESRI ASCII grids (.asc) or grayscale heightmap images. The file is stretched to the 160 × 120 cm box.</p>
+        <div class="btns"><button class="btn" id="demApply" disabled>Pour sand into target shape</button></div>
+      </div>
+    </details>
+    <details>
+      <summary><span class="dot" style="background:var(--ok)"></span>Save surfaces</summary>
+      <div class="sec">
+        <p class="note">Exports follow the bathymetry saver: an ESRI ASCII grid in centimetres, ready for QGIS, WhiteboxTools or Python.</p>
+        <div class="btns">
+          <button class="btn" id="copyAsc">Copy sand surface (.asc)</button>
+          <button class="btn" id="copyWater">Copy water depth (.asc)</button>
+          <button class="btn" id="viewPng">Show as image</button>
+        </div>
+      </div>
+    </details>
+    <details>
+      <summary><span class="dot" style="background:var(--muted)"></span>About</summary>
+      <div class="sec">
+        <p class="note">A virtual version of the Augmented Reality Sandbox by Oliver Kreylos (UC Davis KeckCAVES). The water is the original SARndbox 2.8 solver, a Kurganov–Petrova shallow-water scheme, ported from GLSL to WebGL2 with the same constants (θ = 1.3, g = 9.81, attenuation 127/128). The virtual box is 160 × 120 cm on a 400 × 300 grid (0.4 cm cells).</p>
+        <p class="note">Added beyond the original: angle-of-repose sand slumping, springs, sinkholes, Green–Ampt infiltration and a flow-speed view. The original is GPL-2.0-or-later, and this port carries the same license. <a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html" target="_blank" rel="noopener">Original project page</a></p>
+      </div>
+    </details>
+  </aside>
+</div>
+
+<div class="modal" id="modal" hidden><div class="card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <h2 id="modalTitle"></h2><div id="modalBody"></div>
+  <div class="btns" style="margin-top:12px;justify-content:flex-end"><button class="btn primary" id="modalClose">Close</button></div>
+</div></div>
+
+<script>
+"use strict";
+/* ============================================================
+   Grid and units. All lengths are centimetres, time in seconds,
+   matching SARndbox, where the camera reports centimetres.
+   ============================================================ */
+const LX=160,LY=120;                   // box size in cm
+const W=400,H=300,BW=W-1,BH=H-1;      // water cells / bathymetry corners
+const CS=LX/W;                          // 0.4 cm per cell
+const KD=100/LX;                        // landscapes are designed on a 100 × 75 template and scaled to the box
+const ZMIN=-25,ZMAX=25;                 // sand depth range inside the box
+const $=id=>document.getElementById(id);
+
+const canvas=$('gl');
+const gl=canvas.getContext('webgl2',{antialias:true,alpha:true,premultipliedAlpha:true});
+function fail(msg){const d=document.createElement('div');d.className='glerr';d.textContent=msg;$('stage').appendChild(d);throw new Error(msg);}
+if(!gl) fail('This page needs WebGL2. Open it in a current Chrome, Edge, Firefox or Safari.');
+if(!gl.getExtension('EXT_color_buffer_float')) fail('Your graphics driver cannot render to floating-point textures (EXT_color_buffer_float), which the water simulation needs.');
+
+/* ---------------- GL helpers ---------------- */
+function tex(w,h,data,fmt){
+  fmt=fmt||'32f';
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  if(fmt==='32f') gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,w,h,0,gl.RGBA,gl.FLOAT,data||null);
+  else if(fmt==='16f') gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,data||null);
+  const filt=(fmt==='32f')?gl.NEAREST:gl.LINEAR;
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,filt);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,filt);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  t.w=w;t.h=h;return t;
+}
+const fboCache=new Map();let fboId=0;
+function fbo(...texs){
+  const key=texs.map(t=>t._id||(t._id=++fboId)).join(',');
+  let f=fboCache.get(key);if(f) return f;
+  f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  texs.forEach((t,i)=>gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0+i,gl.TEXTURE_2D,t,0));
+  gl.drawBuffers(texs.map((t,i)=>gl.COLOR_ATTACHMENT0+i));
+  const st=gl.checkFramebufferStatus(gl.FRAMEBUFFER);if(st!==gl.FRAMEBUFFER_COMPLETE) fail('Framebuffer incomplete: '+st);
+  f.w=texs[0].w;f.h=texs[0].h;fboCache.set(key,f);return f;
+}
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const log=gl.getShaderInfoLog(s);console.error(log,src.split('\n').map((l,i)=>(i+1)+': '+l).join('\n'));fail('Shader error: '+log);}return s;}
+function program(vs,fs){const p=gl.createProgram();gl.attachShader(p,shader(gl.VERTEX_SHADER,vs));gl.attachShader(p,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) fail('Link error: '+gl.getProgramInfoLog(p));
+  const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);p.u={};
+  for(let i=0;i<n;i++){const info=gl.getActiveUniform(p,i);p.u[info.name.replace(/\[0\]$/,'')]={loc:gl.getUniformLocation(p,info.name),type:info.type};}
+  p.unit=0;return p;}
+function use(p,uniforms){
+  gl.useProgram(p);let unit=0;
+  for(const k in uniforms){const u=p.u[k];if(!u) continue;const v=uniforms[k];
+    switch(u.type){
+      case gl.SAMPLER_2D: gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,v);gl.uniform1i(u.loc,unit);unit++;break;
+      case gl.FLOAT: gl.uniform1f(u.loc,v);break;
+      case gl.FLOAT_VEC2: gl.uniform2fv(u.loc,v);break;
+      case gl.FLOAT_VEC3: gl.uniform3fv(u.loc,v);break;
+      case gl.FLOAT_VEC4: gl.uniform4fv(u.loc,v);break;
+      case gl.INT: case gl.BOOL: gl.uniform1i(u.loc,v|0);break;
+      case gl.INT_VEC2: gl.uniform2iv(u.loc,v);break;
+      case gl.FLOAT_MAT4: gl.uniformMatrix4fv(u.loc,false,v);break;
+    }}
+}
+const emptyVAO=gl.createVertexArray();
+function pass(p,target,uniforms){
+  const f=Array.isArray(target)?fbo(...target):fbo(target);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.viewport(0,0,f.w,f.h);
+  gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
+  use(p,uniforms);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function readTex(t,arr){gl.bindFramebuffer(gl.FRAMEBUFFER,fbo(t));gl.readPixels(0,0,t.w,t.h,gl.RGBA,gl.FLOAT,arr);return arr;}
+
+/* ============================================================
+   Shaders. The SIM_ block is a WebGL2 port of SARndbox 2.8's
+   Water2*.fs shaders (Kurganov–Petrova central-upwind scheme).
+   Rectangle textures became texelFetch; gl_FragData became
+   layout outputs; out-of-range reads are clamped with
+   mirrored momentum (reflective ghost cells).
+   ============================================================ */
+const QUAD_VS=`#version 300 es
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}`;
+const HEAD=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uBathy;uniform sampler2D uQ;uniform ivec2 uQSize;uniform ivec2 uBSize;
+float B(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uBathy,c,0).r;}
+float Bc(ivec2 c){return (B(c+ivec2(-1,-1))+B(c+ivec2(0,-1))+B(c+ivec2(-1,0))+B(c))*0.25;}
+vec3 Q(ivec2 c){ivec2 k=clamp(c,ivec2(0),uQSize-ivec2(1));vec3 q=texelFetch(uQ,k,0).rgb;if(k.x!=c.x)q.y=-q.y;if(k.y!=c.y)q.z=-q.z;return q;}
+`;
+const DERIV_FS=HEAD+`
+uniform vec2 uCell;uniform float uTheta;uniform float uG;uniform float uEps;
+layout(location=0) out vec4 oDeriv;layout(location=1) out vec4 oMax;
+vec3 calcSlope(vec3 q0,vec3 q1,vec3 q2,float cs,float b0,float b1){
+  vec3 d01=(q1-q0)*(uTheta/cs);vec3 d02=(q2-q0)/(2.0*cs);vec3 d12=(q2-q1)*(uTheta/cs);
+  vec3 dMin=min(min(d01,d02),d12);vec3 dMax=max(max(d01,d02),d12);
+  vec3 s;
+  s.x=dMin.x>0.0?dMin.x:(dMax.x<0.0?dMax.x:0.0);
+  s.y=dMin.y>0.0?dMin.y:(dMax.y<0.0?dMax.y:0.0);
+  s.z=dMin.z>0.0?dMin.z:(dMax.z<0.0?dMax.z:0.0);
+  if(q1.x-s.x*cs*0.5<b0) s.x=(q1.x-b0)/(cs*0.5);
+  if(q1.x+s.x*cs*0.5<b1) s.x=(b1-q1.x)/(cs*0.5);
+  return s;}
+vec2 calcUv(inout vec3 q,float h){float h4=h*h*h*h;vec2 uv=q.yz*(1.41421356237309*h/sqrt(h4+max(h4,uEps)));q.yz=uv*h;return uv;}
+float fluxX(vec3 qe,vec3 qw,float bew,out vec3 f){
+  float he=max(qe.x-bew,0.0),hw=max(qw.x-bew,0.0);
+  vec2 uve=calcUv(qe,he),uvw=calcUv(qw,hw);
+  vec3 fe=vec3(qe.y,uve.x*qe.y+0.5*uG*he*he,uve.y*qe.y);
+  vec3 fw=vec3(qw.y,uvw.x*qw.y+0.5*uG*hw*hw,uvw.y*qw.y);
+  float sghe=sqrt(uG*he),sghw=sqrt(uG*hw);
+  float aE=min(min(uve.x-sghe,uvw.x-sghw),0.0);
+  float aW=max(max(uve.x+sghe,uvw.x+sghw),0.0);
+  f=aW-aE!=0.0?((fe*aW-fw*aE)+(qw-qe)*(aW*aE))/(aW-aE):vec3(0.0);
+  return 0.5*uCell.x/max(max(-aE,aW),1e-6);}
+float fluxY(vec3 qn,vec3 qs,float bns,out vec3 f){
+  float hn=max(qn.x-bns,0.0),hs=max(qs.x-bns,0.0);
+  vec2 uvn=calcUv(qn,hn),uvs=calcUv(qs,hs);
+  vec3 fn=vec3(qn.z,uvn.x*qn.z,uvn.y*qn.z+0.5*uG*hn*hn);
+  vec3 fs=vec3(qs.z,uvs.x*qs.z,uvs.y*qs.z+0.5*uG*hs*hs);
+  float sghn=sqrt(uG*hn),sghs=sqrt(uG*hs);
+  float aN=min(min(uvn.y-sghn,uvs.y-sghs),0.0);
+  float aS=max(max(uvn.y+sghn,uvs.y+sghs),0.0);
+  f=aS-aN!=0.0?((fn*aS-fs*aN)+(qs-qn)*(aS*aN))/(aS-aN):vec3(0.0);
+  return 0.5*uCell.y/max(max(-aN,aS),1e-6);}
+void main(){
+  ivec2 c=ivec2(gl_FragCoord.xy);int x=c.x,y=c.y;
+  float b00=B(ivec2(x-1,y-1)),b10=B(ivec2(x,y-1)),b01=B(ivec2(x-1,y)),b11=B(c);
+  float b0=(B(ivec2(x-1,y-2))+B(ivec2(x,y-2)))*0.5;
+  float b1=(b00+b10)*0.5;
+  float b2=(B(ivec2(x-2,y-1))+B(ivec2(x-2,y)))*0.5;
+  float b3=(b00+b01)*0.5;
+  float b4=(b10+b11)*0.5;
+  float b5=(B(ivec2(x+1,y-1))+B(ivec2(x+1,y)))*0.5;
+  float b6=(b01+b11)*0.5;
+  float b7=(B(ivec2(x-1,y+1))+B(ivec2(x,y+1)))*0.5;
+  vec3 q1=Q(ivec2(x,y-1)),q3=Q(ivec2(x-1,y)),q4=Q(c),q5=Q(ivec2(x+1,y)),q7=Q(ivec2(x,y+1));
+  vec3 q1n=q1+calcSlope(Q(ivec2(x,y-2)),q1,q4,uCell.y,b0,b1)*(uCell.y*0.5);
+  vec3 q3e=q3+calcSlope(Q(ivec2(x-2,y)),q3,q4,uCell.x,b2,b3)*(uCell.x*0.5);
+  vec3 q4x=calcSlope(q3,q4,q5,uCell.x,b3,b4)*(uCell.x*0.5);
+  vec3 q4w=q4-q4x,q4e=q4+q4x;
+  vec3 q4y=calcSlope(q1,q4,q7,uCell.y,b1,b6)*(uCell.y*0.5);
+  vec3 q4s=q4-q4y,q4n=q4+q4y;
+  vec3 q5w=q5-calcSlope(q4,q5,Q(ivec2(x+2,y)),uCell.x,b4,b5)*(uCell.x*0.5);
+  vec3 q7s=q7-calcSlope(q4,q7,Q(ivec2(x,y+2)),uCell.y,b6,b7)*(uCell.y*0.5);
+  vec3 fXw,fXe,fYs,fYn;
+  float m=min(min(fluxX(q3e,q4w,b3,fXw),fluxX(q4e,q5w,b4,fXe)),min(fluxY(q1n,q4s,b1,fYs),fluxY(q4n,q7s,b6,fYn)));
+  oMax=vec4(m,0.0,0.0,0.0);
+  float h=max(q4.x-(b3+b4)*0.5,0.0);
+  vec3 src=vec3(0.0,-uG*h*(b4-b3)/uCell.x,-uG*h*(b6-b1)/uCell.y);
+  oDeriv=vec4(src-(fXe-fXw)/uCell.x-(fYn-fYs)/uCell.y,0.0);
+}`;
+const EULER_FS=HEAD+`
+uniform sampler2D uD;uniform float uDt;uniform float uAtt;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;vec3 n=q+texelFetch(uD,c,0).rgb*uDt;n.yz*=uAtt;o=vec4(n,0.0);}`;
+const RK_FS=HEAD+`
+uniform sampler2D uQs;uniform sampler2D uD;uniform float uDt;uniform float uAtt;uniform int uDry;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);
+  vec3 n=(texelFetch(uQ,c,0).rgb+texelFetch(uQs,c,0).rgb+texelFetch(uD,c,0).rgb*uDt)*0.5;n.yz*=uAtt;
+  float b=Bc(c);
+  if(uDry==1&&(c.x==0||c.y==0||c.x==uQSize.x-1||c.y==uQSize.y-1)) n=vec3(b,0.0,0.0);  // Water2BoundaryShader
+  if(n.x<=b){n.x=b;n.yz=vec2(0.0);}
+  o=vec4(n,0.0);}`;
+// Water2WaterUpdateShader + sources/sinks, plus Green–Ampt infiltration (extension). Writes quantity and soil state.
+const WATER_FS=HEAD+`
+uniform sampler2D uFeat;uniform float uDt;uniform float uGlobal;uniform float uEvap;uniform vec4 uBrush;uniform float uCs;
+uniform float uKs;uniform float uPsi;
+layout(location=0) out vec4 o;layout(location=1) out vec4 oF;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;vec4 f=texelFetch(uFeat,c,0);float b=Bc(c);
+  vec2 p=(vec2(c)+0.5)*uCs;float amt=uGlobal-uEvap+f.r-f.g;
+  if(uBrush.z>0.0&&distance(p,uBrush.xy)<uBrush.z) amt+=uBrush.w;
+  float hOld=q.x-b;float hNew=max(hOld+amt*uDt,0.0);
+  if(uKs>0.0&&hNew>0.0){float cap=uKs*(1.0+uPsi/max(f.b,0.05))*uDt;float inf=min(cap,hNew);hNew-=inf;f.b+=inf;}
+  q.x=hNew+b;
+  q.yz=hNew<=0.0?vec2(0.0):(hNew<hOld?q.yz*(hNew/max(hOld,1e-6)):q.yz);
+  o=vec4(q,0.0);oF=f;}`;
+const BUPD_FS=HEAD+`
+uniform sampler2D uOld;out vec4 o;
+float Bo(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uOld,c,0).r;}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);
+  float bOld=(Bo(c+ivec2(-1,-1))+Bo(c+ivec2(0,-1))+Bo(c+ivec2(-1,0))+Bo(c))*0.25;
+  float bNew=Bc(c);vec3 q=texelFetch(uQ,c,0).rgb;
+  o=vec4(max(q.x-bOld,0.0)+bNew,q.yz,0.0);}`;
+const REDUCE_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform ivec2 uSrcSize;out vec4 o;
+void main(){ivec2 base=ivec2(gl_FragCoord.xy)*8;float m=1e30;
+  for(int j=0;j<8;j++)for(int i=0;i<8;i++){ivec2 p=base+ivec2(i,j);if(p.x<uSrcSize.x&&p.y<uSrcSize.y)m=min(m,texelFetch(uSrc,p,0).r);}
+  o=vec4(m);}`;
+const SCULPT_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform ivec2 uSize;uniform vec4 uBrush;uniform int uMode;uniform float uLevel;uniform vec2 uClamp;uniform float uCs;out vec4 o;
+float S(ivec2 c){c=clamp(c,ivec2(0),uSize-ivec2(1));return texelFetch(uSrc,c,0).r;}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);float b=S(c);vec2 p=(vec2(c)+1.0)*uCs;float d=distance(p,uBrush.xy);
+  if(d<uBrush.z){float w=0.5+0.5*cos(3.14159265*d/uBrush.z);float a=uBrush.w*w;
+    if(uMode==0) b+=a; else if(uMode==1) b-=a;
+    else if(uMode==2){float s=0.0;for(int j=-2;j<=2;j++)for(int i=-2;i<=2;i++)s+=S(c+ivec2(i,j));b=mix(b,s/25.0,clamp(a,0.0,1.0));}
+    else b=mix(b,uLevel,clamp(a,0.0,1.0));}
+  o=vec4(clamp(b,uClamp.x,uClamp.y),0.0,0.0,0.0);}`;
+// Angle-of-repose relaxation. Pairwise-symmetric, so sand volume is conserved.
+const SLUMP_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform ivec2 uSize;uniform float uT;out vec4 o;
+float S(ivec2 c){c=clamp(c,ivec2(0),uSize-ivec2(1));return texelFetch(uSrc,c,0).r;}
+float ex(float d){return sign(d)*max(abs(d)-uT,0.0);}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);float b=S(c);
+  float a=ex(S(c+ivec2(1,0))-b)+ex(S(c-ivec2(1,0))-b)+ex(S(c+ivec2(0,1))-b)+ex(S(c-ivec2(0,1))-b);
+  o=vec4(b+0.2*a,0.0,0.0,0.0);}`;
+const FEAT_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform vec4 uBrush;uniform int uMode;uniform float uRate;uniform float uCs;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec4 f=texelFetch(uSrc,c,0);vec2 p=(vec2(c)+0.5)*uCs;
+  if(distance(p,uBrush.xy)<uBrush.z){if(uMode==0){f.r=uRate;f.g=0.0;}else if(uMode==1){f.g=uRate;f.r=0.0;}else if(uMode==2){f.r=0.0;f.g=0.0;}}
+  if(uMode==3) f.b=0.0;
+  o=f;}`;
+const COPY_FS=`#version 300 es
+precision highp float;precision highp sampler2D;uniform sampler2D uSrc;out vec4 o;
+void main(){o=texelFetch(uSrc,ivec2(gl_FragCoord.xy),0);}`;
+// Per-cell water visualisation: depth, speed, surface gradient (half-float so it can be filtered linearly)
+const WVIS_FS=HEAD+`
+uniform float uEps;uniform float uCs;out vec4 o;
+float D(ivec2 c){c=clamp(c,ivec2(0),uQSize-ivec2(1));return max(texelFetch(uQ,c,0).r-Bc(c),0.0);}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;float h=max(q.x-Bc(c),0.0);
+  float h4=h*h*h*h;vec2 uv=q.yz*(1.41421356237309*h/sqrt(h4+max(h4,uEps)));
+  ivec2 l=clamp(c-ivec2(1,0),ivec2(0),uQSize-ivec2(1)),r=clamp(c+ivec2(1,0),ivec2(0),uQSize-ivec2(1));
+  ivec2 dn=clamp(c-ivec2(0,1),ivec2(0),uQSize-ivec2(1)),up=clamp(c+ivec2(0,1),ivec2(0),uQSize-ivec2(1));
+  float gx=(texelFetch(uQ,r,0).r-texelFetch(uQ,l,0).r)/(2.0*uCs);
+  float gy=(texelFetch(uQ,up,0).r-texelFetch(uQ,dn,0).r)/(2.0*uCs);
+  if(D(l)<0.01||D(r)<0.01) gx=0.0; if(D(dn)<0.01||D(up)<0.01) gy=0.0;
+  o=vec4(h,length(uv),gx,gy);}`;
+
+/* ---------------- Render shaders ---------------- */
+const TERRAIN_VS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uBathy;uniform ivec2 uBSize;uniform float uCs;uniform float uExag;uniform mat4 uMVP;
+out float vElev;out vec2 vXY;out vec3 vN;
+float B(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uBathy,c,0).r;}
+void main(){ivec2 c=ivec2(gl_VertexID%uBSize.x,gl_VertexID/uBSize.x);float b=B(c);vec2 xy=(vec2(c)+1.0)*uCs;
+  float dx=(B(c+ivec2(1,0))-B(c-ivec2(1,0)))/(2.0*uCs)*uExag;float dy=(B(c+ivec2(0,1))-B(c-ivec2(0,1)))/(2.0*uCs)*uExag;
+  vN=normalize(vec3(-dx,-dy,1.0));vElev=b;vXY=xy;gl_Position=uMVP*vec4(xy,b*uExag,1.0);}`;
+const TERRAIN_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+in float vElev;in vec2 vXY;in vec3 vN;out vec4 o;
+uniform sampler2D uWV;uniform sampler2D uFeat;uniform sampler2D uCmap;uniform sampler2D uDem;
+uniform ivec2 uQSize;uniform ivec2 uBSize;uniform float uCs;
+uniform vec2 uCmapRange;uniform float uSea;uniform int uSandMode;
+uniform int uContours;uniform float uCInt;uniform int uShade;uniform vec3 uLight;
+uniform int uWaterProj;uniform int uWColor;uniform float uWOp;uniform float uSpeedMax;
+uniform int uDemOn;uniform float uDemScale;uniform int uShowFeat;uniform int uShowWet;uniform vec4 uRing;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec3 ramp(float t){t=clamp(t,0.0,1.0);return t<0.33?mix(vec3(0.1,0.3,0.95),vec3(0.1,0.85,0.95),t/0.33):(t<0.66?mix(vec3(0.1,0.85,0.95),vec3(1.0,0.9,0.2),(t-0.33)/0.33):mix(vec3(1.0,0.9,0.2),vec3(0.95,0.2,0.1),(t-0.66)/0.34));}
+void main(){
+  float e=vElev-uSea;vec3 col;
+  if(uDemOn==1){
+    ivec2 bc=clamp(ivec2(floor(vXY/uCs-0.5)),ivec2(0),uBSize-ivec2(1));
+    float d=clamp((vElev-texelFetch(uDem,bc,0).r)*uDemScale,-1.0,1.0);
+    col=d<0.0?vec3(1.0,1.0+d,1.0+d):vec3(1.0-d,1.0-d,1.0);   // SARndbox DEM colouring: red = too low, blue = too high
+  } else if(uSandMode==1){
+    col=vec3(0.86,0.74,0.53)*(0.94+0.08*hash(floor(vXY*6.0)));
+  } else {
+    float t=(e-uCmapRange.x)/(uCmapRange.y-uCmapRange.x);col=texture(uCmap,vec2(clamp(t,0.0,1.0),0.5)).rgb;
+  }
+  ivec2 qc=clamp(ivec2(vXY/uCs),ivec2(0),uQSize-ivec2(1));vec4 ft=texelFetch(uFeat,qc,0);
+  if(uShowWet==1) col*=1.0-0.38*clamp(ft.b/1.5,0.0,1.0);
+  if(uShade==1){float d=max(dot(normalize(vN),uLight),0.0);col*=0.42+0.7*d;}
+  if(uContours==1){float f=e/uCInt;float w=fwidth(f);float dd=abs(fract(f+0.5)-0.5);
+    float major=abs(mod(floor(f+0.5),5.0))<0.5?1.0:0.0;
+    float line=1.0-smoothstep(w*(0.45+0.5*major),w*(1.25+0.6*major),dd);col=mix(col,vec3(0.0),line*0.92);}
+  vec4 wv=texture(uWV,(vXY/uCs)/vec2(uQSize));
+  if(uWaterProj==1&&wv.x>0.0){
+    vec3 wn=normalize(vec3(-wv.z,-wv.w,1.0));float s=pow(max(dot(wn,normalize(vec3(0.075,0.075,1.0))),0.0),100.0);
+    vec3 wc=uWColor==1?ramp(wv.y/uSpeedMax):mix(vec3(0.04,0.22,0.92),vec3(1.0),s*s*0.9);    // SurfaceAddWaterColor: blue with sparkle
+    col=mix(col,wc,clamp((wv.x-0.06)*uWOp,0.0,1.0));
+  }
+  if(uShowFeat==1){
+    if(ft.r>0.0){float k=0.5+0.5*sin(dot(vXY,vec2(3.0,3.0)));col=mix(col,vec3(0.3,0.95,1.0),0.55*k);}
+    if(ft.g>0.0){float k=0.5+0.5*sin(length(fract(vXY/2.0)-0.5)*18.0);col=mix(col,vec3(0.45,0.12,0.55),0.6*k);}
+  }
+  if(uRing.w>0.0){float d=abs(distance(vXY,uRing.xy)-uRing.z);float px=fwidth(distance(vXY,uRing.xy));
+    float a=1.0-smoothstep(px*0.8,px*2.0,d);col=mix(col,vec3(1.0),a*0.9);}
+  o=vec4(col,1.0);
+}`;
+const WATER_VS=HEAD+`
+uniform float uCs;uniform float uExag;uniform mat4 uMVP;uniform float uEps;
+out float vH;out vec3 vN;out float vSpeed;out vec3 vW;
+void main(){ivec2 c=ivec2(gl_VertexID%uQSize.x,gl_VertexID/uQSize.x);vec3 q=texelFetch(uQ,c,0).rgb;float b=Bc(c);float h=q.x-b;float z=q.x;
+  if(h<0.02){float s=0.0,n=0.0;
+    for(int k=0;k<4;k++){ivec2 d=k==0?ivec2(1,0):(k==1?ivec2(-1,0):(k==2?ivec2(0,1):ivec2(0,-1)));ivec2 nc=clamp(c+d,ivec2(0),uQSize-ivec2(1));
+      float qn=texelFetch(uQ,nc,0).r;if(qn-Bc(nc)>=0.02){s+=qn;n+=1.0;}}
+    z=n>0.0?s/n:b-2.0;}
+  vH=z-b;
+  float h4=h*h*h*h;vec2 uv=q.yz*(1.41421356237309*max(h,0.0)/sqrt(h4+max(h4,uEps)));vSpeed=length(uv);
+  ivec2 l=clamp(c-ivec2(1,0),ivec2(0),uQSize-ivec2(1)),r=clamp(c+ivec2(1,0),ivec2(0),uQSize-ivec2(1));
+  ivec2 dn=clamp(c-ivec2(0,1),ivec2(0),uQSize-ivec2(1)),up=clamp(c+ivec2(0,1),ivec2(0),uQSize-ivec2(1));
+  float gx=(texelFetch(uQ,r,0).r-texelFetch(uQ,l,0).r)/(2.0*uCs);float gy=(texelFetch(uQ,up,0).r-texelFetch(uQ,dn,0).r)/(2.0*uCs);
+  if(texelFetch(uQ,r,0).r-Bc(r)<0.02||texelFetch(uQ,l,0).r-Bc(l)<0.02) gx=0.0;
+  if(texelFetch(uQ,up,0).r-Bc(up)<0.02||texelFetch(uQ,dn,0).r-Bc(dn)<0.02) gy=0.0;
+  vN=normalize(vec3(-gx*uExag,-gy*uExag,1.0));
+  vec3 w=vec3((vec2(c)+0.5)*uCs,z*uExag+0.02);vW=w;gl_Position=uMVP*vec4(w,1.0);}`;
+const WATER_FS3=`#version 300 es
+precision highp float;precision highp int;
+in float vH;in vec3 vN;in float vSpeed;in vec3 vW;out vec4 o;
+uniform vec3 uEye;uniform vec3 uLight;uniform int uWColor;uniform float uSpeedMax;uniform float uWOp;
+vec3 ramp(float t){t=clamp(t,0.0,1.0);return t<0.33?mix(vec3(0.1,0.3,0.95),vec3(0.1,0.85,0.95),t/0.33):(t<0.66?mix(vec3(0.1,0.85,0.95),vec3(1.0,0.9,0.2),(t-0.33)/0.33):mix(vec3(1.0,0.9,0.2),vec3(0.95,0.2,0.1),(t-0.66)/0.34));}
+void main(){if(vH<0.03) discard;
+  vec3 N=normalize(vN);vec3 V=normalize(uEye-vW);float t=1.0-exp(-vH*0.09*uWOp);
+  vec3 base=uWColor==1?ramp(vSpeed/uSpeedMax)*0.9:mix(vec3(0.42,0.78,0.92),vec3(0.03,0.2,0.45),t);
+  float diff=max(dot(N,uLight),0.0);float spec=pow(max(dot(reflect(-uLight,N),V),0.0),70.0);
+  float fres=pow(1.0-max(dot(N,V),0.0),3.0);
+  vec3 col=base*(0.55+0.45*diff)+vec3(1.0)*spec*0.7+vec3(0.75,0.85,0.95)*fres*0.25;
+  float a=clamp(mix(0.45,0.92,t)+fres*0.2,0.0,0.95)*smoothstep(0.03,0.25,vH);
+  o=vec4(col*a,a);}`;
+const BOX_VS=`#version 300 es
+in vec3 aPos;in vec3 aN;uniform mat4 uMVP;uniform float uExag;out vec3 vN;out float vZ;
+void main(){vN=aN;vZ=aPos.z;gl_Position=uMVP*vec4(aPos.xy,aPos.z*uExag,1.0);}`;
+const BOX_FS=`#version 300 es
+precision highp float;in vec3 vN;in float vZ;uniform vec3 uLight;out vec4 o;
+void main(){float d=max(dot(normalize(vN),uLight),0.0);vec3 c=vec3(0.2,0.22,0.25)*(0.5+0.6*d);o=vec4(c,1.0);}`;
+
+const SKIRT_VS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+in vec3 aV;in vec2 aN;uniform sampler2D uBathy;uniform sampler2D uQ;uniform ivec2 uBSize;uniform ivec2 uQSize;uniform float uCs;uniform float uExag;uniform mat4 uMVP;uniform float uBase;
+out vec3 vN;out float vZ;out float vTop;
+float B(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uBathy,c,0).r;}
+void main(){ivec2 c=ivec2(aV.xy);float b=B(c);
+  ivec2 q=clamp(ivec2(aN.x>0.5?c.x:c.x+1,aN.y>0.5?c.y:c.y+1),ivec2(0),uQSize-ivec2(1));   // water cell just inside this edge
+  float w=texelFetch(uQ,q,0).r;float bq=(B(q+ivec2(-1,-1))+B(q+ivec2(0,-1))+B(q+ivec2(-1,0))+B(q))*0.25;
+  float top=(w-bq>0.05)?max(b,w):b;   // show standing water against the box side, like an aquarium wall
+  float z=aV.z>0.5?top:uBase;vZ=z;vTop=b;vN=vec3(aN,0.0);
+  vec2 xy=(vec2(c)+1.0)*uCs;gl_Position=uMVP*vec4(xy,z*uExag,1.0);}`;
+const SKIRT_FS=`#version 300 es
+precision highp float;in vec3 vN;in float vZ;in float vTop;uniform vec3 uLight;uniform float uBase;out vec4 o;
+void main(){float d=max(dot(normalize(vN),uLight),0.0);
+  if(vZ>vTop+0.02){o=vec4(vec3(0.09,0.3,0.6)*(0.7+0.45*d),1.0);return;}
+  float band=0.5+0.5*sin(vZ*2.3+sin(vZ*0.7)*2.0);
+  vec3 c=mix(vec3(0.62,0.5,0.34),vec3(0.52,0.41,0.27),band)*mix(0.8,1.0,smoothstep(uBase,vTop,vZ));
+  if(vZ<uBase+0.7) c=vec3(0.16,0.17,0.19);
+  o=vec4(c*(0.5+0.55*d),1.0);}`;
+
+/* ---------------- Programs ---------------- */
+const P={
+  deriv:program(QUAD_VS,DERIV_FS),euler:program(QUAD_VS,EULER_FS),rk:program(QUAD_VS,RK_FS),water:program(QUAD_VS,WATER_FS),
+  bupd:program(QUAD_VS,BUPD_FS),reduce:program(QUAD_VS,REDUCE_FS),sculpt:program(QUAD_VS,SCULPT_FS),slump:program(QUAD_VS,SLUMP_FS),
+  feat:program(QUAD_VS,FEAT_FS),copy:program(QUAD_VS,COPY_FS),wvis:program(QUAD_VS,WVIS_FS),
+  terrain:program(TERRAIN_VS,TERRAIN_FS),skirt:program(SKIRT_VS,SKIRT_FS),water3:program(WATER_VS,WATER_FS3),box:program(BOX_VS,BOX_FS)
+};
+
+/* ---------------- Simulation state ---------------- */
+const bathy=[tex(BW,BH),tex(BW,BH)],bOld=tex(BW,BH);let bi=0;
+const Qt=[tex(W,H),tex(W,H),tex(W,H)];let qi=0;const qStar=tex(W,H);
+const deriv=tex(W,H),maxT=tex(W,H);
+const red1=tex(Math.ceil(W/8),Math.ceil(H/8)),red2=tex(Math.ceil(W/64),Math.ceil(H/64)),red3=tex(1,1);
+const feat=[tex(W,H),tex(W,H)];let fi=0;
+const wvis=tex(W,H,null,'16f');
+const demTex=tex(BW,BH);
+const SIM={uQSize:[W,H],uBSize:[BW,BH],uCell:[CS,CS],uTheta:1.3,uG:9.81,uEps:0.01*Math.max(CS,1)};
+
+const bCPU=new Float32Array(BW*BH*4),qCPU=new Float32Array(W*H*4),fCPU=new Float32Array(W*H*4);
+const one=new Float32Array(4);
+
+/* ---------------- Settings ---------------- */
+const S={tool:'raise',view:'3d',paused:false,brushR:5,brushS:1,slump:true,repose:34,rainRate:0.25,contRain:false,speed:1,atten:1/128,evap:0,
+  dry:1,springRate:3,sinkRate:2,ks:0,psi:3,showWet:true,cmap:'sarndbox',contours:true,cint:0.75,shade:true,sea:0,water3d:true,wcolor:0,wop:2,exag:1.5,
+  showFeat:true,demOn:false,demScale:0.15,holdRain:false,holdDrain:false};
+let simTime=0,lastSteps=0,slumpTimer=0,undoStack=[];
+
+/* ---------------- Terrain generators ---------------- */
+function hash2(x,y,s){let h=Math.imul(x|0,374761393)+Math.imul(y|0,668265263)+Math.imul(s|0,2246822519);h=Math.imul(h^(h>>>13),1274126177);h^=h>>>16;return (h>>>0)/4294967295;}
+function vnoise(x,y,s){const xi=Math.floor(x),yi=Math.floor(y),xf=x-xi,yf=y-yi;const u=xf*xf*(3-2*xf),v=yf*yf*(3-2*yf);
+  const a=hash2(xi,yi,s),b=hash2(xi+1,yi,s),c=hash2(xi,yi+1,s),d=hash2(xi+1,yi+1,s);return a+(b-a)*u+(c-a)*v+(a-b-c+d)*u*v;}
+function fbm(x,y,s,oct){let t=0,a=0.5,f=1,n=0;for(let i=0;i<(oct||5);i++){t+=a*vnoise(x*f,y*f,s+i*17);n+=a;a*=0.5;f*=2;}return t/n;}
+const yc=u=>37.5+10*Math.sin(u/13);
+const G={
+  river:(u,v)=>{const c=Math.exp(-Math.pow((v-yc(u))/5,2));let z=9-0.09*u+6*Math.pow((v-37.5)/37.5,2)-3.5*c;
+    z-=5*Math.exp(-(Math.pow(u-80,2)/(2*64)+Math.pow(v-yc(80),2)/(2*100)));
+    z+=4.5*Math.exp(-Math.pow((u-95)/3,2))*Math.exp(-Math.pow((v-yc(95))/14,2))*(1-0.9*Math.exp(-Math.pow((v-yc(95))/3,2)));
+    return z+2*(fbm(u/14,v/14,3)-0.5);},
+  hills:(u,v)=>18*(fbm(u/28,v/28,7)-0.5)+4*Math.pow(Math.hypot(u-50,v-37.5)/60,2)+1,
+  watersheds:(u,v)=>0.5+11*Math.exp(-Math.pow((u-50-6*Math.sin(v/9))/9,2))+6*(fbm(u/18,v/18,11)-0.5)+3*Math.pow((v-37.5)/37.5,2),
+  island:(u,v)=>{const r=Math.hypot(u-50,v-37.5);return -13+26*Math.exp(-r*r/(2*15*15))-7*Math.exp(-r*r/(2*3.2*3.2))+3*(fbm(u/10,v/10,5)-0.5);},
+  dam:(u,v)=>{let z=13-0.1*u+7*Math.pow((v-37.5)/37.5,2)-5*Math.exp(-Math.pow((v-37.5)/8,2))+1.2*(fbm(u/12,v/12,9)-0.5);
+    const wall=Math.exp(-Math.pow((u-56)/2.2,4));return Math.max(z,z*(1-wall)+10*wall);},
+  karst:(u,v)=>{let z=9-0.05*u+3*(fbm(u/16,v/16,21)-0.5);
+    for(const [cx,cy] of KARST) z-=6.5*Math.exp(-(Math.pow(u-cx,2)+Math.pow(v-cy,2))/(2*3.6*3.6));
+    z-=2.6*Math.exp(-Math.pow((v-yc(u)+3)/3.5,2))*(u<62?1:Math.exp(-(u-62)/5));
+    return z;},
+  flat:()=>0
+};
+const KARST=[[30,20],[46,56],[62,30],[74,52],[85,18],[58,64],[88,40],[38,40]];
+const HINTS={
+  river:'A spring feeds a river that winds down the valley into a lake. Dig a new channel or build a dam.',
+  hills:'Rolling hills. Hold R (or “Hold to rain”) and watch the valleys fill and drain.',
+  watersheds:'A ridge splits the box into two drainage basins. Turn on steady rain and watch where each drop ends up.',
+  island:'A volcanic island in a walled sea. Dig into the crater rim, or raise the sea with rain.',
+  dam:'A reservoir behind an earth dam. Dig a notch in the dam to start a dam-break flood.',
+  karst:'Ozark-style karst plateau. A losing stream disappears underground, and sinkholes swallow runoff. Turn on steady rain.',
+  flat:'Flat sand. Build your own landscape with Add sand and Dig.'
+};
+function gen(name){const a=new Float32Array(BW*BH),f=G[name];
+  for(let j=0;j<BH;j++)for(let i=0;i<BW;i++){a[j*BW+i]=Math.min(ZMAX,Math.max(ZMIN,f((i+1)*CS*KD,(j+1)*CS*KD)));}return a;}
+
+/* ---------------- State upload helpers ---------------- */
+function packBathy(a){const d=new Float32Array(BW*BH*4);for(let k=0;k<BW*BH;k++)d[k*4]=a[k];return d;}
+function bcCPU(a,x,y){const B=(i,j)=>a[Math.min(BH-1,Math.max(0,j))*BW+Math.min(BW-1,Math.max(0,i))];return (B(x-1,y-1)+B(x,y-1)+B(x-1,y)+B(x,y))*0.25;}
+function upload(t,data){gl.bindTexture(gl.TEXTURE_2D,t);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,t.w,t.h,gl.RGBA,gl.FLOAT,data);}
+function setBathy(a,keepWater){
+  if(keepWater) pass(P.copy,bOld,{uSrc:bathy[bi]});
+  upload(bathy[bi],packBathy(a));
+  if(keepWater){pass(P.bupd,Qt[(qi+1)%3],{uBathy:bathy[bi],uOld:bOld,uQ:Qt[qi],...SIM});qi=(qi+1)%3;}
+}
+function setWater(a,fillFn){ // fillFn(u,v,b) -> surface level or null
+  const d=new Float32Array(W*H*4);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const b=bcCPU(a,x,y);let s=b;if(fillFn){const L=fillFn((x+0.5)*CS*KD,(y+0.5)*CS*KD,b);if(L!=null&&L>b)s=L;}d[(y*W+x)*4]=s;}
+  upload(Qt[qi],d);
+}
+function setFeatures(springs,sinks){const d=new Float32Array(W*H*4);
+  const paint=(list,ch,rate)=>{for(const [cx,cy,r] of list)for(let y=0;y<H;y++)for(let x=0;x<W;x++){if(Math.hypot((x+0.5)*CS*KD-cx,(y+0.5)*CS*KD-cy)<r)d[(y*W+x)*4+ch]=rate;}};
+  paint(springs,0,S.springRate);paint(sinks,1,S.sinkRate);upload(feat[fi],d);}
+
+let currentBathyArr=null;
+function loadPreset(name){
+  const a=gen(name);currentBathyArr=a;undoStack=[];$('undo').disabled=true;
+  setBathy(a,false);
+  let springs=[],sinks=[],fill=null;
+  if(name==='river'){springs=[[5,yc(5),2.2]];fill=(u,v,b)=>u>66?0:null;}
+  if(name==='dam'){fill=(u,v,b)=>u<54?9.2:null;}
+  if(name==='island'){fill=()=>0;setSel('edges','0');S.dry=0;}
+  if(name==='karst'){springs=[[5,yc(5)-3,2]];sinks=KARST.map(([x,y])=>[x,y,1.6]);}
+  setWater(a,fill);setFeatures(springs,sinks);
+  if(name!=='island'&&S.dry===0&&name!=='flat'){setSel('edges','1');S.dry=1;}
+  simTime=0;$('hint').textContent=HINTS[name];readAll();
+}
+
+/* ---------------- Simulation step (WaterTable2::runSimulationStep) ---------------- */
+function maxStep(){
+  pass(P.reduce,red1,{uSrc:maxT,uSrcSize:[W,H]});
+  pass(P.reduce,red2,{uSrc:red1,uSrcSize:[red1.w,red1.h]});
+  pass(P.reduce,red3,{uSrc:red2,uSrcSize:[red2.w,red2.h]});
+  readTex(red3,one);return one[0];
+}
+function simStep(maxDt,rates){
+  const q0=Qt[qi],q1=Qt[(qi+1)%3],q2=Qt[(qi+2)%3];
+  pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:q0,...SIM});
+  let dt=Math.min(maxStep(),maxDt);if(!(dt>0)||!isFinite(dt)) dt=maxDt;
+  const att=Math.pow(1-S.atten,dt);
+  pass(P.euler,qStar,{uBathy:bathy[bi],uQ:q0,uD:deriv,uDt:dt,uAtt:att,...SIM});
+  pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:qStar,...SIM});
+  pass(P.rk,q1,{uBathy:bathy[bi],uQ:q0,uQs:qStar,uD:deriv,uDt:dt,uAtt:att,uDry:S.dry,...SIM});
+  pass(P.water,[q2,feat[1-fi]],{uBathy:bathy[bi],uQ:q1,uFeat:feat[fi],uDt:dt,uGlobal:rates.global,uEvap:S.evap,uBrush:rates.brush,uCs:CS,uKs:S.ks,uPsi:S.psi,...SIM});
+  qi=(qi+2)%3;fi=1-fi;return dt;
+}
+
+/* ---------------- Camera ---------------- */
+const M={
+  persp(f,a,n,fa){const t=1/Math.tan(f/2),r=new Float32Array(16);r[0]=t/a;r[5]=t;r[10]=(fa+n)/(n-fa);r[11]=-1;r[14]=2*fa*n/(n-fa);return r;},
+  ortho(l,r,b,t,n,f){const m=new Float32Array(16);m[0]=2/(r-l);m[5]=2/(t-b);m[10]=-2/(f-n);m[12]=-(r+l)/(r-l);m[13]=-(t+b)/(t-b);m[14]=-(f+n)/(f-n);m[15]=1;return m;},
+  look(e,c,u){const z=norm(sub(e,c)),x=norm(cross(u,z)),y=cross(z,x);const m=new Float32Array(16);
+    m[0]=x[0];m[4]=x[1];m[8]=x[2];m[1]=y[0];m[5]=y[1];m[9]=y[2];m[2]=z[0];m[6]=z[1];m[10]=z[2];
+    m[12]=-dot(x,e);m[13]=-dot(y,e);m[14]=-dot(z,e);m[15]=1;return m;},
+  mul(a,b){const r=new Float32Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];r[i*4+j]=s;}return r;},
+  inv(m){const a=m,r=new Float32Array(16);
+    const b00=a[0]*a[5]-a[1]*a[4],b01=a[0]*a[6]-a[2]*a[4],b02=a[0]*a[7]-a[3]*a[4],b03=a[1]*a[6]-a[2]*a[5],b04=a[1]*a[7]-a[3]*a[5],b05=a[2]*a[7]-a[3]*a[6],
+    b06=a[8]*a[13]-a[9]*a[12],b07=a[8]*a[14]-a[10]*a[12],b08=a[8]*a[15]-a[11]*a[12],b09=a[9]*a[14]-a[10]*a[13],b10=a[9]*a[15]-a[11]*a[13],b11=a[10]*a[15]-a[11]*a[14];
+    let d=b00*b11-b01*b10+b02*b09+b03*b08-b04*b07+b05*b06;if(!d)return r;d=1/d;
+    r[0]=(a[5]*b11-a[6]*b10+a[7]*b09)*d;r[1]=(a[2]*b10-a[1]*b11-a[3]*b09)*d;r[2]=(a[13]*b05-a[14]*b04+a[15]*b03)*d;r[3]=(a[10]*b04-a[9]*b05-a[11]*b03)*d;
+    r[4]=(a[6]*b08-a[4]*b11-a[7]*b07)*d;r[5]=(a[0]*b11-a[2]*b08+a[3]*b07)*d;r[6]=(a[14]*b02-a[12]*b05-a[15]*b01)*d;r[7]=(a[8]*b05-a[10]*b02+a[11]*b01)*d;
+    r[8]=(a[4]*b10-a[5]*b08+a[7]*b06)*d;r[9]=(a[1]*b08-a[0]*b10-a[3]*b06)*d;r[10]=(a[12]*b04-a[13]*b02+a[15]*b00)*d;r[11]=(a[9]*b02-a[8]*b04-a[11]*b00)*d;
+    r[12]=(a[5]*b07-a[4]*b09-a[6]*b06)*d;r[13]=(a[0]*b09-a[1]*b07+a[2]*b06)*d;r[14]=(a[13]*b01-a[12]*b03-a[14]*b00)*d;r[15]=(a[8]*b03-a[9]*b01+a[10]*b00)*d;return r;}
+};
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+  cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]],norm=a=>{const l=Math.hypot(...a)||1;return [a[0]/l,a[1]/l,a[2]/l];};
+const cam={yaw:-Math.PI/2-0.25,pitch:0.95,dist:250,target:[LX/2+4,LY/2,0]};
+let MVP,INV,EYE;
+function camMatrices(){
+  const w=canvas.width,h=canvas.height,asp=w/h;
+  if(S.view==='3d'){
+    const cp=Math.cos(cam.pitch);EYE=[cam.target[0]+cam.dist*cp*Math.cos(cam.yaw),cam.target[1]+cam.dist*cp*Math.sin(cam.yaw),cam.target[2]+cam.dist*Math.sin(cam.pitch)];
+    MVP=M.mul(M.persp(40*Math.PI/180,asp,1,1500),M.look(EYE,cam.target,[0,0,1]));
+  } else {
+    let hh=LY/2*1.01,hw=hh*asp;if(asp<LX/LY){hw=LX/2*1.01;hh=hw/asp;}
+    EYE=[LX/2,LY/2,400];MVP=M.mul(M.ortho(-hw,hw,-hh,hh,1,1000),M.look(EYE,[LX/2,LY/2,0],[0,1,0]));
+  }
+  INV=M.inv(MVP);
+}
+function exagNow(){return S.view==='3d'?S.exag:1;}
+
+/* ---------------- Geometry ---------------- */
+function gridIndices(nx,ny){const idx=new Uint32Array((nx-1)*(ny-1)*6);let k=0;
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx[k++]=a;idx[k++]=b;idx[k++]=d;idx[k++]=a;idx[k++]=d;idx[k++]=c;}return idx;}
+function makeIBO(arr){const vao=gl.createVertexArray();gl.bindVertexArray(vao);const b=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,b);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,arr,gl.STATIC_DRAW);gl.bindVertexArray(null);return {vao,n:arr.length};}
+const terrainMesh=makeIBO(gridIndices(BW,BH)),waterMesh=makeIBO(gridIndices(W,H));
+const boxMesh=(()=>{const v=[];
+  const P=[[-3,-3,-29],[103,-3,-29],[103,78,-29],[-3,78,-29],[-3,-3,-27.2],[103,-3,-27.2],[103,78,-27.2],[-3,78,-27.2]];
+  const F=[[0,1,5,4,[0,-1,0]],[1,2,6,5,[1,0,0]],[2,3,7,6,[0,1,0]],[3,0,4,7,[-1,0,0]],[4,5,6,7,[0,0,1]]];
+  for(const [a,b,c,d,n] of F) for(const k of [a,b,c,a,c,d]) v.push(...P[k],...n);
+  const vao=gl.createVertexArray();gl.bindVertexArray(vao);const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.STATIC_DRAW);
+  const pl=gl.getAttribLocation(P_box(),'aPos'),nl=gl.getAttribLocation(P_box(),'aN');
+  gl.enableVertexAttribArray(pl);gl.vertexAttribPointer(pl,3,gl.FLOAT,false,24,0);gl.enableVertexAttribArray(nl);gl.vertexAttribPointer(nl,3,gl.FLOAT,false,24,12);
+  gl.bindVertexArray(null);return {vao,n:v.length/6};})();
+function P_box(){return P.box;}
+// Sand cross-section around the edges: (i, j, top?, nx, ny) per vertex, drawn as a triangle strip
+const skirtMesh=(()=>{const pts=[];
+  for(let i=0;i<BW;i++)pts.push([i,0,0,-1]);for(let j=0;j<BH;j++)pts.push([BW-1,j,1,0]);
+  for(let i=BW-1;i>=0;i--)pts.push([i,BH-1,0,1]);for(let j=BH-1;j>=0;j--)pts.push([0,j,-1,0]);pts.push(pts[0]);
+  const v=[];for(const [i,j,nx,ny] of pts){v.push(i,j,1,nx,ny,i,j,0,nx,ny);}
+  const vao=gl.createVertexArray();gl.bindVertexArray(vao);const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(v),gl.STATIC_DRAW);
+  const a0=gl.getAttribLocation(P.skirt,'aV'),a1=gl.getAttribLocation(P.skirt,'aN');
+  gl.enableVertexAttribArray(a0);gl.vertexAttribPointer(a0,3,gl.FLOAT,false,20,0);gl.enableVertexAttribArray(a1);gl.vertexAttribPointer(a1,2,gl.FLOAT,false,20,12);
+  gl.bindVertexArray(null);return {vao,n:v.length/5};})();
+
+/* ---------------- Color maps ---------------- */
+const CMAPS={
+  sarndbox:{range:[-40,25],stops:[[-40,0,0,80],[-30,0,30,100],[-20,0,50,102],[-12.5,19,108,160],[-0.75,24,140,205],[-0.25,135,206,250],[-0.05,176,226,255],[0,0,97,71],[0.25,16,122,47],[2.5,232,215,125],[6,161,67,0],[9,130,30,30],[14,161,161,161],[20,206,206,206],[25,255,255,255]]},
+  hypso:{range:[-20,20],stops:[[-20,38,70,120],[-6,90,150,190],[-0.01,170,215,230],[0,96,148,92],[4,170,190,110],[8,222,206,140],[12,190,145,90],[16,150,110,90],[20,245,242,236]]},
+  gray:{range:[-20,20],stops:[[-20,10,10,10],[20,250,250,250]]},
+  sand:{range:[-20,20],stops:[[-20,219,188,135],[20,219,188,135]]}
+};
+const cmapTex=tex(512,1,null,'8');
+function sampleMap(m,t){const s=m.stops;const e=m.range[0]+(m.range[1]-m.range[0])*t;
+  if(e<=s[0][0])return s[0].slice(1);for(let i=1;i<s.length;i++){if(e<=s[i][0]){const a=s[i-1],b=s[i],f=(e-a[0])/(b[0]-a[0]);return [a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f,a[3]+(b[3]-a[3])*f];}}return s[s.length-1].slice(1);}
+function buildCmap(){const m=CMAPS[S.cmap],d=new Uint8Array(512*4);
+  for(let i=0;i<512;i++){const c=sampleMap(m,i/511);d[i*4]=c[0];d[i*4+1]=c[1];d[i*4+2]=c[2];d[i*4+3]=255;}
+  gl.bindTexture(gl.TEXTURE_2D,cmapTex);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,512,1,gl.RGBA,gl.UNSIGNED_BYTE,d);drawLegend();}
+function drawLegend(){const c=$('legendBar'),x=c.getContext('2d');const lo=-20,hi=20;
+  if(S.demOn){const g=x.createLinearGradient(0,0,c.width,0);g.addColorStop(0,'rgb(255,0,0)');g.addColorStop(.5,'#fff');g.addColorStop(1,'rgb(0,0,255)');x.fillStyle=g;x.fillRect(0,0,c.width,c.height);
+    $('legendTitle').textContent='Sand vs. target';const r=(1/S.demScale).toFixed(1);$('legendTicks').innerHTML=`<span>−${r} cm (add sand)</span><span>match</span><span>+${r} cm</span>`;return;}
+  const m=CMAPS[S.cmap];for(let i=0;i<c.width;i++){const e=lo+(hi-lo)*i/(c.width-1);const t=(e-m.range[0])/(m.range[1]-m.range[0]);const col=sampleMap(m,Math.min(1,Math.max(0,t)));
+    x.fillStyle=`rgb(${col[0]|0},${col[1]|0},${col[2]|0})`;x.fillRect(i,0,1,c.height);}
+  $('legendTitle').textContent='Elevation above sea level';
+  $('legendTicks').innerHTML=[-20,-10,0,10,20].map(v=>`<span>${v>0?'+':''}${v}</span>`).join('').replace(/<span>\+20<\/span>$/,'<span>+20 cm</span>');
+}
+
+/* ---------------- Picking ---------------- */
+function heightAt(x,y){const fi_=x/CS-1,fj=y/CS-1;const i=Math.floor(fi_),j=Math.floor(fj),fx=fi_-i,fy=fj-j;
+  const B=(a,b)=>bCPU[(Math.min(BH-1,Math.max(0,b))*BW+Math.min(BW-1,Math.max(0,a)))*4];
+  return (B(i,j)*(1-fx)+B(i+1,j)*fx)*(1-fy)+(B(i,j+1)*(1-fx)+B(i+1,j+1)*fx)*fy;}
+function unproject(px,py,z){const r=canvas.getBoundingClientRect();const nx=(px-r.left)/r.width*2-1,ny=1-(py-r.top)/r.height*2;
+  const m=INV;const x=nx,y=ny;const w=m[3]*x+m[7]*y+m[11]*z+m[15];return [(m[0]*x+m[4]*y+m[8]*z+m[12])/w,(m[1]*x+m[5]*y+m[9]*z+m[13])/w,(m[2]*x+m[6]*y+m[10]*z+m[14])/w];}
+function pick(px,py){if(!INV)return null;const a=unproject(px,py,-1),b=unproject(px,py,1),E=exagNow();
+  const zTop=ZMAX*E+1,zBot=ZMIN*E-1;const dz=b[2]-a[2];if(Math.abs(dz)<1e-9)return null;
+  let t0=(zTop-a[2])/dz,t1=(zBot-a[2])/dz;if(t0>t1)[t0,t1]=[t1,t0];t0=Math.max(t0,0);t1=Math.min(t1,1);if(t0>=t1)return null;
+  const P_=t=>[a[0]+(b[0]-a[0])*t,a[1]+(b[1]-a[1])*t,a[2]+(b[2]-a[2])*t];
+  const inside=p=>p[0]>=0&&p[0]<=LX&&p[1]>=0&&p[1]<=LY;const N=500;let prev=t0;
+  for(let k=1;k<=N;k++){const t=t0+(t1-t0)*k/N;const p=P_(t);if(inside(p)&&p[2]<=heightAt(p[0],p[1])*E){
+      let lo=prev,hi=t;for(let it=0;it<10;it++){const m=(lo+hi)/2,q=P_(m);if(inside(q)&&q[2]<=heightAt(q[0],q[1])*E)hi=m;else lo=m;}
+      const q=P_(hi);return [q[0],q[1],heightAt(q[0],q[1])];}prev=t;}
+  return null;}
+
+/* ---------------- Readback & stats ---------------- */
+let skirtBase=-3;
+function edgeMin(){let m=1e9;const at=(i,j)=>bCPU[(j*BW+i)*4];for(let i=0;i<BW;i++){m=Math.min(m,at(i,0),at(i,BH-1));}for(let j=0;j<BH;j++){m=Math.min(m,at(0,j),at(BW-1,j));}return m;}
+function readAll(){readTex(bathy[bi],bCPU);readTex(Qt[qi],qCPU);readTex(feat[fi],fCPU);skirtBase=edgeMin()-2;}
+function cellDepth(x,y){const B=(i,j)=>bCPU[(Math.min(BH-1,Math.max(0,j))*BW+Math.min(BW-1,Math.max(0,i)))*4];
+  const b=(B(x-1,y-1)+B(x,y-1)+B(x-1,y)+B(x,y))*0.25;return Math.max(qCPU[(y*W+x)*4]-b,0);}
+let demArr=null,fileDem=null;
+function stats(){let vol=0,wet=0,mx=0;
+  for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const h=cellDepth(x,y);vol+=h;if(h>0.2)wet++;if(h>mx)mx=h;}
+  $('hWater').textContent=(vol*CS*CS/1000).toFixed(2)+' L';
+  $('hFlood').textContent=(100*wet/((W-2)*(H-2))).toFixed(1)+' %';
+  $('hMax').textContent=mx.toFixed(1)+' cm';
+  $('hTime').textContent=simTime.toFixed(1)+' s';
+  $('hSteps').textContent=S.paused?'paused':String(lastSteps);
+  if(demArr&&S.demOn){let se=0,ok=0;for(let k=0;k<BW*BH;k++){const d=bCPU[k*4]-demArr[k];se+=d*d;if(Math.abs(d)<1)ok++;}
+    $('demScore').innerHTML=`<span>RMS error</span><b>${Math.sqrt(se/(BW*BH)).toFixed(2)} cm</b><span>within ±1 cm</span><b>${(100*ok/(BW*BH)).toFixed(0)} %</b>`;}
+  updateProbe();
+}
+let hover=null,hoverPt=null;
+function updateProbe(){if(!hoverPt){$('hProbe').textContent='–';return;}
+  const x=Math.min(W-1,Math.floor(hoverPt[0]/CS)),y=Math.min(H-1,Math.floor(hoverPt[1]/CS));const h=cellDepth(x,y);const k=(y*W+x)*4;
+  const sp=h>0.05?Math.hypot(qCPU[k+1],qCPU[k+2])/h:0;
+  $('hProbe').textContent=`${(hoverPt[2]-S.sea>=0?'+':'')}${(hoverPt[2]-S.sea).toFixed(1)} cm`+(h>0.05?` · ${h.toFixed(1)} deep · ${sp.toFixed(1)} cm/s`:'');}
+
+/* ---------------- Input ---------------- */
+const pointers=new Map();let action=null,last=null,pinch=null,strokeActive=false;
+const BRUSH_TOOLS=new Set(['raise','dig','smooth','flatten','rain','drain','spring','sink','erase']);
+let flattenLevel=0,brushPt=null;
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);pointers.set(e.pointerId,[e.clientX,e.clientY]);
+  if(pointers.size===2){action='gesture';endStroke();const p=[...pointers.values()];pinch={d:Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]),m:[(p[0][0]+p[1][0])/2,(p[0][1]+p[1][1])/2]};return;}
+  last=[e.clientX,e.clientY];hover=[e.clientX,e.clientY];
+  if(e.button===2||(e.button===0&&S.tool==='orbit'&&!e.shiftKey)) action='orbit';
+  else if(e.button===1||(e.button===0&&e.shiftKey)) action='pan';
+  else if(e.button===0){action='tool';beginStroke(e.clientX,e.clientY);}
+});
+canvas.addEventListener('pointermove',e=>{
+  if(pointers.has(e.pointerId))pointers.set(e.pointerId,[e.clientX,e.clientY]);
+  hover=[e.clientX,e.clientY];
+  if(action==='gesture'&&pointers.size===2){const p=[...pointers.values()];const d=Math.hypot(p[0][0]-p[1][0],p[0][1]-p[1][1]),m=[(p[0][0]+p[1][0])/2,(p[0][1]+p[1][1])/2];
+    if(S.view==='3d'){cam.dist=Math.min(600,Math.max(40,cam.dist*pinch.d/Math.max(d,1)));cam.yaw-=(m[0]-pinch.m[0])*0.006;cam.pitch=Math.min(1.53,Math.max(0.12,cam.pitch+(m[1]-pinch.m[1])*0.006));}
+    pinch={d,m};return;}
+  if(!last)return;const dx=e.clientX-last[0],dy=e.clientY-last[1];last=[e.clientX,e.clientY];
+  if(action==='orbit'&&S.view==='3d'){cam.yaw-=dx*0.006;cam.pitch=Math.min(1.53,Math.max(0.12,cam.pitch+dy*0.006));}
+  if(action==='pan'&&S.view==='3d'){const s=cam.dist*0.0016;const f=[-Math.cos(cam.yaw),-Math.sin(cam.yaw)],r=[f[1],-f[0]];
+    cam.target[0]+=(-r[0]*dx+f[0]*dy)*s;cam.target[1]+=(-r[1]*dx+f[1]*dy)*s;
+    cam.target[0]=Math.min(LX+30,Math.max(-30,cam.target[0]));cam.target[1]=Math.min(LY+30,Math.max(-30,cam.target[1]));}
+});
+function upEv(e){pointers.delete(e.pointerId);if(pointers.size<2)pinch=null;if(pointers.size===0){endStroke();action=null;last=null;}}
+canvas.addEventListener('pointerup',upEv);canvas.addEventListener('pointercancel',upEv);
+canvas.addEventListener('pointerleave',()=>{hover=null;hoverPt=null;});
+canvas.addEventListener('wheel',e=>{e.preventDefault();if(S.view!=='3d')return;cam.dist=Math.min(600,Math.max(40,cam.dist*Math.exp(e.deltaY*0.001)));},{passive:false});
+function beginStroke(px,py){if(!BRUSH_TOOLS.has(S.tool))return;readTex(bathy[bi],bCPU);const p=pick(px,py);
+  if(['raise','dig','smooth','flatten'].includes(S.tool)){const snap=new Float32Array(BW*BH);for(let k=0;k<BW*BH;k++)snap[k]=bCPU[k*4];undoStack.push(snap);if(undoStack.length>20)undoStack.shift();$('undo').disabled=false;}
+  if(p)flattenLevel=p[2];strokeActive=true;}
+function endStroke(){if(strokeActive){strokeActive=false;readAll();}}
+
+/* ---------------- Per-frame terrain & feature edits ---------------- */
+function applyBrush(dt){
+  if(!strokeActive||!hover)return null;const p=pick(hover[0],hover[1]);if(!p)return null;brushPt=p;
+  const r=S.brushR,s=S.brushS,t=S.tool;
+  if(t==='raise'||t==='dig'||t==='smooth'||t==='flatten'){
+    const mode={raise:0,dig:1,smooth:2,flatten:3}[t];const amt=mode<2?s*7*dt:s*5*dt;
+    pass(P.sculpt,bathy[1-bi],{uSrc:bathy[bi],uSize:[BW,BH],uBrush:[p[0],p[1],r,amt],uMode:mode,uLevel:flattenLevel,uClamp:[ZMIN,ZMAX],uCs:CS});bi=1-bi;slumpTimer=2.5;return 'terrain';}
+  if(t==='spring'||t==='sink'||t==='erase'){const mode={spring:0,sink:1,erase:2}[t];
+    pass(P.feat,feat[1-fi],{uSrc:feat[fi],uBrush:[p[0],p[1],t==='erase'?r:Math.max(1,r*0.45),0],uMode:mode,uRate:t==='spring'?S.springRate:S.sinkRate,uCs:CS});fi=1-fi;return 'feat';}
+  return 'water';
+}
+
+/* ---------------- Main loop ---------------- */
+let lastT=performance.now(),readTimer=0,fpsAcc=0,fpsN=0;
+function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);const r=canvas.getBoundingClientRect();const w=Math.max(1,Math.round(r.width*dpr)),h=Math.max(1,Math.round(r.height*dpr));
+  if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}}
+function frame(now){
+  const dtReal=Math.min((now-lastT)/1000,0.05);lastT=now;resize();camMatrices();
+  // 1. sand edits
+  pass(P.copy,bOld,{uSrc:bathy[bi]});let terrainChanged=false;
+  const br=applyBrush(dtReal);if(br==='terrain')terrainChanged=true;
+  if(S.slump&&slumpTimer>0){slumpTimer-=dtReal;const T=Math.tan(S.repose*Math.PI/180)*CS;
+    for(let k=0;k<3;k++){pass(P.slump,bathy[1-bi],{uSrc:bathy[bi],uSize:[BW,BH],uT:T});bi=1-bi;}terrainChanged=true;}
+  if(terrainChanged){pass(P.bupd,Qt[(qi+1)%3],{uBathy:bathy[bi],uOld:bOld,uQ:Qt[qi],...SIM});qi=(qi+1)%3;}
+  // 2. water
+  let localRate=0;if(br==='water'&&brushPt)localRate=(S.tool==='rain'?1:-1)*S.rainRate*4;
+  const rates={global:(S.contRain?S.rainRate*0.12:0)+(S.holdRain?S.rainRate*2:0)-(S.holdDrain?S.rainRate*2:0),
+    brush:localRate&&brushPt?[brushPt[0],brushPt[1],S.brushR,localRate]:[0,0,0,0]};
+  if(!S.paused){let remaining=dtReal*S.speed,steps=0;
+    while(remaining>1e-6&&steps<24){const dt=simStep(remaining,rates);remaining-=dt;simTime+=dt;steps++;}lastSteps=steps;}
+  // 3. render
+  pass(P.wvis,wvis,{uBathy:bathy[bi],uQ:Qt[qi],uCs:CS,...SIM});
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.disable(gl.BLEND);
+  const E=exagNow(),L=norm([-0.45,-0.55,0.75]),water3=S.view==='3d'&&S.water3d;
+  hoverPt=hover?pick(hover[0],hover[1]):null;
+  const ringPt=strokeActive&&brushPt?brushPt:hoverPt;
+  const ring=(BRUSH_TOOLS.has(S.tool)&&ringPt)?[ringPt[0],ringPt[1],(S.tool==='spring'||S.tool==='sink')?Math.max(1,S.brushR*0.45):S.brushR,1]:[0,0,0,0];
+  const cm=CMAPS[S.cmap];
+  use(P.terrain,{uBathy:bathy[bi],uBSize:[BW,BH],uQSize:[W,H],uCs:CS,uExag:E,uMVP:MVP,uWV:wvis,uFeat:feat[fi],uCmap:cmapTex,uDem:demTex,
+    uCmapRange:cm.range,uSea:S.sea,uSandMode:S.cmap==='sand'?1:0,uContours:S.contours,uCInt:S.cint,uShade:S.shade,uLight:L,
+    uWaterProj:water3?0:1,uWColor:S.wcolor,uWOp:S.wop,uSpeedMax:15,uDemOn:S.demOn&&demArr?1:0,uDemScale:S.demScale,uShowFeat:S.showFeat,uShowWet:S.showWet&&S.ks>0?1:0,uRing:ring});
+  gl.bindVertexArray(terrainMesh.vao);gl.drawElements(gl.TRIANGLES,terrainMesh.n,gl.UNSIGNED_INT,0);
+  if(S.view==='3d'){use(P.skirt,{uBathy:bathy[bi],uQ:Qt[qi],uQSize:[W,H],uBSize:[BW,BH],uCs:CS,uExag:E,uMVP:MVP,uLight:L,uBase:skirtBase});gl.bindVertexArray(skirtMesh.vao);gl.drawArrays(gl.TRIANGLE_STRIP,0,skirtMesh.n);}
+  if(water3){gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);
+    use(P.water3,{uBathy:bathy[bi],uQ:Qt[qi],uQSize:[W,H],uBSize:[BW,BH],uCs:CS,uExag:E,uMVP:MVP,uEps:SIM.uEps,uEye:EYE,uLight:L,uWColor:S.wcolor,uSpeedMax:15,uWOp:S.wop});
+    gl.bindVertexArray(waterMesh.vao);gl.drawElements(gl.TRIANGLES,waterMesh.n,gl.UNSIGNED_INT,0);gl.depthMask(true);gl.disable(gl.BLEND);}
+  gl.bindVertexArray(null);
+  // 4. periodic readback for picking and stats
+  readTimer-=dtReal;if(readTimer<=0){readTimer=0.25;readAll();stats();}
+  requestAnimationFrame(frame);
+}
+
+/* ---------------- UI wiring ---------------- */
+function setSel(id,v){$(id).value=v;}
+function setTool(t){S.tool=t;document.querySelectorAll('#tools button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.tool===t)));
+  canvas.style.cursor=t==='orbit'?'grab':'crosshair';}
+document.querySelectorAll('#tools button').forEach(b=>b.addEventListener('click',()=>setTool(b.dataset.tool)));
+function bindRange(id,fmt,fn){const el=$(id),out=$(id+'o');const upd=()=>{const v=parseFloat(el.value);fn(v);if(out)out.textContent=fmt(v);};el.addEventListener('input',upd);upd();}
+bindRange('brushR',v=>v.toFixed(1)+' cm',v=>S.brushR=v);
+bindRange('brushS',v=>v.toFixed(1)+'×',v=>S.brushS=v);
+bindRange('repose',v=>v+'°',v=>S.repose=v);
+bindRange('rainRate',v=>v.toFixed(2)+' cm/s',v=>S.rainRate=v);
+bindRange('speed',v=>Math.pow(10,v).toFixed(2)+'×',v=>S.speed=Math.pow(10,v));
+bindRange('atten',v=>Math.pow(10,v).toFixed(4)+' /s',v=>S.atten=Math.pow(10,v));
+bindRange('evap',v=>v.toFixed(3)+' cm/s',v=>S.evap=v);
+bindRange('springRate',v=>v.toFixed(1)+' cm/s',v=>S.springRate=v);
+bindRange('sinkRate',v=>v.toFixed(1)+' cm/s',v=>S.sinkRate=v);
+bindRange('ks',v=>v===0?'off':v.toFixed(3)+' cm/s',v=>S.ks=v);
+bindRange('psi',v=>v.toFixed(1)+' cm',v=>S.psi=v);
+bindRange('cint',v=>v.toFixed(2)+' cm',v=>{S.cint=v;$('legendInt').textContent=S.contours?`contours ${v.toFixed(2)} cm`:'';});
+bindRange('sea',v=>(v>0?'+':'')+v.toFixed(2)+' cm',v=>S.sea=v);
+bindRange('wop',v=>v.toFixed(2)+' /cm',v=>S.wop=v);
+bindRange('exag',v=>v.toFixed(2)+'×',v=>S.exag=v);
+bindRange('demScale',v=>'±'+(1/v).toFixed(1)+' cm',v=>{S.demScale=v;if(S.demOn)drawLegend();});
+bindRange('demRelief',v=>v+' cm',()=>{});
+const chk=(id,fn)=>{$(id).addEventListener('change',e=>fn(e.target.checked));fn($(id).checked);};
+chk('slump',v=>S.slump=v);chk('contRain',v=>S.contRain=v);chk('showWet',v=>S.showWet=v);chk('water3d',v=>S.water3d=v);chk('showFeat',v=>S.showFeat=v);chk('shade',v=>S.shade=v);
+chk('contours',v=>{S.contours=v;$('legendInt').textContent=v?`contours ${S.cint.toFixed(2)} cm`:'';});
+$('edges').addEventListener('change',e=>S.dry=+e.target.value);
+$('wcolor').addEventListener('change',e=>S.wcolor=+e.target.value);
+$('cmap').addEventListener('change',e=>{S.cmap=e.target.value;buildCmap();});
+$('loadPreset').addEventListener('click',()=>loadPreset($('preset').value));
+$('preset').addEventListener('change',()=>loadPreset($('preset').value));
+$('undo').addEventListener('click',()=>{const a=undoStack.pop();if(a){setBathy(a,true);readAll();}$('undo').disabled=undoStack.length===0;});
+$('dryAll').addEventListener('click',()=>{readTex(bathy[bi],bCPU);const a=new Float32Array(BW*BH);for(let k=0;k<BW*BH;k++)a[k]=bCPU[k*4];setWater(a,null);readAll();stats();});
+$('drySoil').addEventListener('click',()=>{pass(P.feat,feat[1-fi],{uSrc:feat[fi],uBrush:[0,0,0,0],uMode:3,uRate:0,uCs:CS});fi=1-fi;toast('Soil dried out.');});
+function hold(id,key){const b=$(id);const on=e=>{e.preventDefault();S[key]=true;b.classList.add('active');},off=()=>{S[key]=false;b.classList.remove('active');};
+  b.addEventListener('pointerdown',on);['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,off));}
+hold('rainAll','holdRain');hold('drainAll','holdDrain');
+function setView(v){S.view=v;$('view3d').setAttribute('aria-pressed',String(v==='3d'));$('viewProj').setAttribute('aria-pressed',String(v!=='3d'));}
+$('view3d').addEventListener('click',()=>setView('3d'));$('viewProj').addEventListener('click',()=>setView('proj'));
+$('pauseBtn').addEventListener('click',togglePause);
+function togglePause(){S.paused=!S.paused;$('pauseBtn').textContent=S.paused?'Resume water':'Pause water';$('pauseBtn').setAttribute('aria-pressed',String(S.paused));}
+const TOOLKEYS={'1':'orbit','2':'raise','3':'dig','4':'smooth','5':'flatten','6':'rain','7':'drain','8':'spring','9':'sink','0':'erase'};
+window.addEventListener('keydown',e=>{if(e.target.tagName==='SELECT'||(e.target.tagName==='INPUT'&&e.target.type!=='range'&&e.target.type!=='checkbox'))return;
+  const k=e.key.toLowerCase();
+  if((e.ctrlKey||e.metaKey)&&k==='z'){e.preventDefault();$('undo').click();return;}
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  if(TOOLKEYS[k]){setTool(TOOLKEYS[k]);}
+  else if(k==='r'){S.holdRain=true;$('rainAll').classList.add('active');}
+  else if(k==='d'){S.holdDrain=true;$('drainAll').classList.add('active');}
+  else if(k===' '){e.preventDefault();togglePause();}
+  else if(k==='p'){setView(S.view==='3d'?'proj':'3d');}
+  else if(k==='c'){$('contours').click();}
+  else if(k==='w'){$('water3d').click();}
+  else if(k==='escape'){closeModal();}});
+window.addEventListener('keyup',e=>{const k=e.key.toLowerCase();if(k==='r'){S.holdRain=false;$('rainAll').classList.remove('active');}if(k==='d'){S.holdDrain=false;$('drainAll').classList.remove('active');}});
+window.addEventListener('blur',()=>{S.holdRain=S.holdDrain=false;});
+
+/* ---------------- DEM matching ---------------- */
+function setDem(arr){demArr=arr;if(arr){upload(demTex,packBathy(arr));}S.demOn=!!arr;$('demApply').disabled=!arr;drawLegend();
+  if(!arr)$('demScore').innerHTML='<span>Fit</span><b>–</b>';}
+$('demSel').addEventListener('change',e=>{const v=e.target.value;if(!v)setDem(null);else if(v==='file')setDem(fileDem);else setDem(gen(v));});
+$('demApply').addEventListener('click',()=>{if(demArr){readTex(bathy[bi],bCPU);const snap=new Float32Array(BW*BH);for(let k=0;k<BW*BH;k++)snap[k]=bCPU[k*4];undoStack.push(snap);$('undo').disabled=false;setBathy(demArr,true);readAll();toast('Sand reshaped to the target.');}});
+function resample(src,sw,sh){const lo=Math.min(...src),hi=Math.max(...src);const rel=parseFloat($('demRelief').value);const mid=(lo+hi)/2,sc=hi>lo?rel/(hi-lo):0;
+  const a=new Float32Array(BW*BH);for(let j=0;j<BH;j++)for(let i=0;i<BW;i++){const x=i/(BW-1)*(sw-1),y=(1-j/(BH-1))*(sh-1);const x0=Math.floor(x),y0=Math.floor(y),x1=Math.min(sw-1,x0+1),y1=Math.min(sh-1,y0+1),fx=x-x0,fy=y-y0;
+    const v=(src[y0*sw+x0]*(1-fx)+src[y0*sw+x1]*fx)*(1-fy)+(src[y1*sw+x0]*(1-fx)+src[y1*sw+x1]*fx)*fy;a[j*BW+i]=Math.min(ZMAX,Math.max(ZMIN,(v-mid)*sc));}return a;}
+$('demFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;
+  try{let arr;
+    if(/\.(asc|txt)$/i.test(f.name)){const txt=await f.text();const lines=txt.split(/\r?\n/);const hdr={};let k=0;
+      for(;k<lines.length;k++){const m=lines[k].trim().match(/^([a-zA-Z_]+)\s+(-?[\d.eE+-]+)$/);if(!m)break;hdr[m[1].toLowerCase()]=parseFloat(m[2]);}
+      const nc=hdr.ncols,nr=hdr.nrows,nd=hdr.nodata_value;if(!nc||!nr)throw new Error('missing ncols/nrows');
+      const vals=lines.slice(k).join(' ').trim().split(/\s+/).map(Number);if(vals.length<nc*nr)throw new Error('expected '+nc*nr+' values, found '+vals.length);
+      const good=vals.filter(v=>v!==nd&&isFinite(v));const fill=good.reduce((a,b)=>a+b,0)/good.length;
+      const src=new Float32Array(nc*nr);for(let i=0;i<nc*nr;i++){const v=vals[i];src[i]=(v===nd||!isFinite(v))?fill:v;}
+      arr=resample(src,nc,nr);
+    } else {const img=await createImageBitmap(f);const c=document.createElement('canvas');const sw=Math.min(img.width,640),sh=Math.round(img.height*sw/img.width);c.width=sw;c.height=sh;
+      const x=c.getContext('2d');x.drawImage(img,0,0,sw,sh);const d=x.getImageData(0,0,sw,sh).data;const src=new Float32Array(sw*sh);for(let i=0;i<sw*sh;i++)src[i]=0.299*d[i*4]+0.587*d[i*4+1]+0.114*d[i*4+2];
+      arr=resample(src,sw,sh);}
+    fileDem=arr;const opt=$('demSel').querySelector('option[value=file]');opt.disabled=false;opt.textContent='Loaded file: '+f.name;$('demSel').value='file';setDem(arr);toast('Loaded '+f.name+'. Sculpt to match it, or pour sand into its shape.');
+  }catch(err){toast('Could not read '+f.name+': '+err.message+'.');}
+  e.target.value='';});
+
+/* ---------------- Export ---------------- */
+function ascGrid(nc,nr,val,nodata){let s=`ncols ${nc}\nnrows ${nr}\nxllcorner 0\nyllcorner 0\ncellsize ${CS}\nNODATA_value -9999\n`;const rows=[];
+  for(let r=nr-1;r>=0;r--){const row=new Array(nc);for(let c=0;c<nc;c++)row[c]=val(c,r).toFixed(3);rows.push(row.join(' '));}return s+rows.join('\n')+'\n';}
+function copyText(text,label){
+  const done=()=>toast(label+' copied ('+(text.length/1024).toFixed(0)+' KB). Paste into a file ending in .asc.');
+  try{navigator.clipboard.writeText(text).then(done,()=>showText(text,label));}catch(e){showText(text,label);}}
+function showText(text,label){openModal(label,'<p class="note">Your browser blocked clipboard access. Select all of the text below and copy it.</p><textarea id="ta" readonly></textarea>');const ta=$('ta');ta.value=text;ta.focus();ta.select();}
+$('copyAsc').addEventListener('click',()=>{readTex(bathy[bi],bCPU);copyText(ascGrid(BW,BH,(c,r)=>bCPU[(r*BW+c)*4]),'Sand surface grid');});
+$('copyWater').addEventListener('click',()=>{readAll();copyText(ascGrid(W,H,(c,r)=>cellDepth(c,r)),'Water depth grid');});
+$('viewPng').addEventListener('click',()=>{readTex(bathy[bi],bCPU);let lo=1e9,hi=-1e9;for(let k=0;k<BW*BH;k++){const v=bCPU[k*4];if(v<lo)lo=v;if(v>hi)hi=v;}
+  const c=document.createElement('canvas');c.width=BW;c.height=BH;const x=c.getContext('2d');const im=x.createImageData(BW,BH);
+  for(let j=0;j<BH;j++)for(let i=0;i<BW;i++){const v=Math.round(255*(bCPU[(j*BW+i)*4]-lo)/Math.max(hi-lo,1e-6));const o=((BH-1-j)*BW+i)*4;im.data[o]=im.data[o+1]=im.data[o+2]=v;im.data[o+3]=255;}
+  x.putImageData(im,0,0);
+  openModal('Sand surface as a heightmap',`<p class="note">Black is ${lo.toFixed(1)} cm and white is ${hi.toFixed(1)} cm. Right-click or long-press the image to save it. You can load it again under “Match a terrain model”.</p><img alt="Grayscale heightmap of the sand" src="${c.toDataURL('image/png')}">`);});
+
+/* ---------------- Modal / toast ---------------- */
+function openModal(title,html){$('modalTitle').textContent=title;$('modalBody').innerHTML=html;$('modal').hidden=false;$('modalClose').focus();}
+function closeModal(){$('modal').hidden=true;}
+$('modalClose').addEventListener('click',closeModal);$('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
+let toastT;function toast(msg){let t=document.querySelector('.toast');if(!t){t=document.createElement('div');t.className='toast';t.setAttribute('role','status');document.body.appendChild(t);}
+  t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,3200);}
+$('helpBtn').addEventListener('click',()=>openModal('Controls',`<div class="keys">
+<kbd>Left drag</kbd><span>Use the selected tool on the sand</span>
+<kbd>Right drag</kbd><span>Orbit the camera (3D view)</span>
+<kbd>Shift + drag</kbd><span>Pan the camera</span>
+<kbd>Scroll</kbd><span>Zoom</span>
+<kbd>Two fingers</kbd><span>Pinch to zoom, drag to orbit</span>
+<kbd>1 – 0</kbd><span>Pick a tool: orbit, add sand, dig, smooth, flatten, rain, drain, spring, sinkhole, erase</span>
+<kbd>R</kbd><span>Hold to rain over the whole box (the sandbox's global water tool)</span>
+<kbd>D</kbd><span>Hold to drain water from the whole box</span>
+<kbd>Space</kbd><span>Pause or resume the water</span>
+<kbd>P</kbd><span>Switch between 3D view and projector view</span>
+<kbd>C</kbd><span>Contour lines on or off</span>
+<kbd>W</kbd><span>3D water surface on or off</span>
+<kbd>Ctrl + Z</kbd><span>Undo the last sand stroke</span></div>
+<p class="note" style="margin-top:12px">Projector view shows exactly what the real sandbox projects onto the sand: a top-down map with contour lines and water painted on. “Rain here” stands in for the hand gesture that makes rain in the physical sandbox.</p>`));
+
+/* ---------------- Start ---------------- */
+buildCmap();setTool('raise');loadPreset('river');
+{const r=canvas.getBoundingClientRect();if(r.width/Math.max(r.height,1)<1.15)cam.dist=370;}
+requestAnimationFrame(t=>{lastT=t;requestAnimationFrame(frame);});
+</script>
+
+</body>
+</html>

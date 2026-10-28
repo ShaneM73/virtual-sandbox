@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Virtual AR Sandbox</title>
+<meta name="description" content="A browser and VR version of the Augmented Reality Sandbox, with the original SARndbox 2.8 water physics.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap">
+<style>
+:root{--bg:#121518;--desk:#191d21;--line:#2c333b;--fg:#e9e4d8;--muted:#98a1aa;--sand:#d8b46a;--water:#58a9e6;
+  --f-ui:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:radial-gradient(120% 80% at 50% 0%,#232930 0%,var(--bg) 70%);color:var(--fg);font-family:var(--f-ui);font-size:17px;line-height:1.45;
+  padding:48px max(16px,env(safe-area-inset-left,0px)) 40px max(16px,env(safe-area-inset-right,0px))}
+main{max-width:860px;margin:0 auto}
+h1{margin:0;font-size:clamp(30px,6vw,46px);letter-spacing:.05em;text-transform:uppercase;text-wrap:balance}
+h1 span{color:var(--sand)}
+.lede{color:var(--muted);max-width:62ch;margin:10px 0 30px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+@media (max-width:560px){.grid{grid-template-columns:1fr}}
+a.card{display:flex;flex-direction:column;gap:6px;text-decoration:none;color:inherit;background:var(--desk);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
+a.card:hover,a.card:focus-visible{border-color:var(--sand);outline:none}
+.card h2{margin:0;font-size:24px}
+.card p{margin:0;color:var(--muted)}
+.card .go{margin-top:auto;padding-top:12px;font-weight:700;color:var(--sand)}
+.card.vr .go{color:var(--water)}
+footer{margin-top:34px;color:var(--muted);font-size:14.5px;max-width:70ch}
+footer a{color:var(--water)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Virtual <span>AR</span> Sandbox</h1>
+  <p class="lede">Shape sand and watch water flow over it in real time. Both versions run the water solver from the UC Davis Augmented Reality Sandbox (SARndbox 2.8), ported to WebGL2, on a 160 × 120 cm virtual box.</p>
+  <div class="grid">
+    <a class="card" href="desktop/">
+      <h2>Desktop</h2>
+      <p>Mouse or touch. 3D and projector views, seven landscapes, terrain-model matching, infiltration, and ESRI ASCII grid export.</p>
+      <span class="go">Open the desktop sandbox →</span>
+    </a>
+    <a class="card vr" href="vr/">
+      <h2>VR (Meta Quest)</h2>
+      <p>Open in the Meta Quest Browser. The sandbox sits on a table in front of you. Sculpt with the right controller, make rain with the left, or switch to giant scale and walk through the landscape.</p>
+      <span class="go">Open the VR sandbox →</span>
+    </a>
+  </div>
+  <footer>Based on the Augmented Reality Sandbox by Oliver Kreylos (UC Davis KeckCAVES). Licensed under the GNU GPL v2 or later.
+    <a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html">Original project</a></footer>
+</main>
+</body>
+</html>

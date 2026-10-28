@@ -37,6 +37,10 @@ h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 .map b{font-family:var(--f-data);font-weight:500;font-size:12px;color:var(--sand);white-space:nowrap}
 .foot{margin-top:14px;font-size:13px;color:var(--muted)}
 .foot a{color:var(--water)}
+.det{display:block;margin-top:12px;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:8px}
+.hintline{font-size:13px;color:var(--muted);margin:6px 0 0}
+.home{padding:5px 12px;font-size:14px;margin-bottom:12px}
 .collapse{background:none;border:0;padding:0;color:var(--muted);font-weight:600;font-size:13px;margin-top:10px}
 @media (max-width:600px){.card{top:auto;bottom:16px;max-height:55%}}
 </style>
@@ -44,6 +48,7 @@ h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 <body>
 <canvas id="gl" aria-label="Preview of the VR sandbox. Drag to sculpt, right-drag to orbit, scroll to zoom."></canvas>
 <section class="card" id="card">
+  <a class="btn home" href="../">← Main page</a>
   <h1>AR Sandbox <span>VR</span></h1>
   <p class="lede">Put on a Meta Quest and the sandbox sits on a table in front of you. Point with the right controller to dig and pile sand, and hold the left trigger to make it rain.</p>
   <div class="btns">
@@ -51,6 +56,14 @@ h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
     <button id="enterAR" disabled>Passthrough mode</button>
   </div>
   <p class="status" id="status">Checking for WebXR…</p>
+  <label class="det" for="detail">Simulation detail</label>
+  <select id="detail">
+    <option value="quest">Quest 2: 256 × 192 cells, 0.63 cm</option>
+    <option value="quest-high">Quest 2 high: 320 × 240 cells, 0.50 cm</option>
+    <option value="pc">PC VR: 400 × 300 cells, 0.40 cm</option>
+    <option value="pc-high">PC VR high: 640 × 480 cells, 0.25 cm</option>
+  </select>
+  <p class="hintline">In the headset, the wrist panel shows the frame rate. Quest 2 runs at 72 fps; if it drops below about 68, pick a lower level.</p>
   <div id="details">
     <h2>Right controller</h2>
     <div class="map">
@@ -74,8 +87,7 @@ h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
     </div>
     <p class="foot">The panel above your left hand shows the current tool and water stats.
       In this preview: drag to sculpt, right-drag to orbit, scroll to zoom, 1–9 pick a tool, hold R to rain.
-      Grid <b id="gridInfo"></b>. <a id="gridToggle" href="?grid=high">Use the high-detail grid</a> (for PC VR).
-      <br><a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
+      <br>Designed by Xin Miao, Missouri State University. <a href="../">About the project</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
   </div>
   <button class="collapse" id="collapse" aria-expanded="true">Hide instructions</button>
 </section>
@@ -90,9 +102,10 @@ h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
    ============================================================ */
 const $=id=>document.getElementById(id);
 const PARAMS=new URLSearchParams(location.search);
-const HIGH=PARAMS.get('grid')==='high';
+const DETAIL={quest:[256,192],'quest-high':[320,240],pc:[400,300],'pc-high':[640,480]};
+let detail=PARAMS.get('detail')||(PARAMS.get('grid')==='high'?'pc':'quest');if(!DETAIL[detail])detail='quest';
 const LX=160,LY=120;                         // box size in cm
-const W=HIGH?400:256,H=HIGH?300:192,BW=W-1,BH=H-1;   // Quest 2 default: 256 × 192 water cells
+const W=DETAIL[detail][0],H=DETAIL[detail][1],BW=W-1,BH=H-1;   // Quest 2 default: 256 × 192 water cells
 const CS=LX/W;
 const KD=100/LX;
 const ZMIN=-25,ZMAX=25;
@@ -103,8 +116,8 @@ function setStatus(msg,err){const s=$('status');s.textContent=msg;s.className='s
 function fail(msg){setStatus(msg,true);throw new Error(msg);}
 if(!gl) fail('This page needs WebGL2. Use the Meta Quest Browser, or a current Chrome or Edge.');
 if(!gl.getExtension('EXT_color_buffer_float')) fail('This graphics driver cannot render to floating-point textures (EXT_color_buffer_float), which the water simulation needs.');
-$('gridInfo').textContent=`${W} × ${H} cells (${CS.toFixed(2)} cm)`;
-if(HIGH){$('gridToggle').href='?';$('gridToggle').textContent='Use the Quest 2 grid';}
+$('detail').value=detail;
+$('detail').addEventListener('change',e=>{const u=new URL(location.href);u.searchParams.delete('grid');u.searchParams.set('detail',e.target.value);location.href=u.toString();});
 
 /* ---------------- GL helpers ---------------- */
 function tex(w,h,data,fmt){
@@ -469,7 +482,7 @@ const S={tool:'raise',paused:false,brushR:8,brushS:1,slump:true,repose:34,rainRa
 const TOOLS=[['raise','Add sand'],['dig','Dig'],['smooth','Smooth'],['flatten','Flatten'],['rain','Rain here'],['drain','Drain here'],['spring','Spring'],['sink','Sinkhole'],['erase','Erase spring/sink']];
 const PRESETS=[['river','River valley with lake'],['hills','Rolling hills'],['watersheds','Two watersheds'],['island','Volcanic island'],['dam','Dam and reservoir'],['karst','Ozark karst'],['flat','Flat sand']];
 const CMAP_ORDER=[['sarndbox','SARndbox colors'],['hypso','Hypsometric tints'],['gray','Grayscale'],['sand','Bare sand']];
-let simTime=0,slumpTimer=0,undoStack=[],waterL=0,lastSteps=0;
+let simTime=0,slumpTimer=0,undoStack=[],waterL=0,lastSteps=0,fpsSm=72;
 
 /* ---------------- Terrain generators ---------------- */
 function hash2(x,y,s){let h=Math.imul(x|0,374761393)+Math.imul(y|0,668265263)+Math.imul(s|0,2246822519);h=Math.imul(h^(h>>>13),1274126177);h^=h>>>16;return (h>>>0)/4294967295;}
@@ -549,6 +562,7 @@ function loadPreset(name){
   S.dry=name==='island'?0:1;
   setWater(a,fill);setFeatures(springs,sinks);simTime=0;
   skirtBase=edgeMin()-2;panelDirty=true;presetGen++;waterL=0;qTimer=0.3;
+  if(typeof syncMaxStep==='function'&&P.deriv)syncMaxStep();
 }
 
 /* ---------------- Non-blocking GPU readback (PBO + fence) ----------------
@@ -658,8 +672,9 @@ function drawPanel(){
     px.fillStyle=on?'#1d1708':'#e9e4d8';px.font=`${on?700:500} 27px ${UI}`;px.fillText(name,x+14,y+13);});
   // status
   const y0=82+3*(ch+8)+14;px.font=`500 24px ${MONO}`;px.fillStyle='#e9e4d8';
-  const rows=[['Brush',S.brushR.toFixed(1)+' cm'],['Relief',S.exag.toFixed(2)+'×'],['Water',S.paused?'paused':waterL.toFixed(1)+' L'],['Sim time',simTime.toFixed(0)+' s']];
-  rows.forEach(([k,v],i)=>{const x=30+(i%2)*((Wd-60)/2),y=y0+Math.floor(i/2)*36;px.fillStyle='#98a1aa';px.fillText(k,x,y);px.fillStyle='#d8b46a';px.fillText(v,x+150,y);});
+  const fc=fpsSm>=68?'#7cc493':(fpsSm>=55?'#d8b46a':'#e2785f');
+  const rows=[['Brush',S.brushR.toFixed(1)+' cm'],['Relief',S.exag.toFixed(2)+'×'],['Water',S.paused?'paused':waterL.toFixed(1)+' L'],['Frame',fpsSm.toFixed(0)+' fps',fc],['Grid',W+'×'+H],['Steps',String(lastSteps)]];
+  rows.forEach(([k,v,c],i)=>{const x=30+(i%3)*((Wd-60)/3),y=y0+Math.floor(i/3)*36;px.fillStyle='#98a1aa';px.fillText(k,x,y);px.fillStyle=c||'#d8b46a';px.fillText(v,x+(k.length>5?92:80),y);});
   // controls
   const y1=y0+84;px.font=`500 22px ${UI}`;
   const L=[['RIGHT','Trigger: use tool · Stick: tool / brush size','Grip: move sandbox · A: pause · B: next landscape'],
@@ -713,7 +728,7 @@ function stepWorld(dt,tool){   // tool: {o,d,active,start} world-space ray, or n
   const local=br==='water'?(S.tool==='rain'?1:-1)*S.rainRate*4:0;
   const rates={global:(S.holdRain?S.rainRate*2:0)-(S.holdDrain?S.rainRate*2:0),brush:local?[hover.sand[0],hover.sand[1],S.brushR,local]:[0,0,0,0]};
   if(maxReader.poll()){const m=maxReader.arr[0];if(isFinite(m)&&m>0)asyncMax=m;}
-  if(!S.paused){const total=dt*S.speed;const safe=asyncMax*0.6;const n=Math.max(1,Math.min(8,Math.ceil(total/safe)));const h=Math.min(total/n,safe);
+  if(!S.paused){const total=dt*S.speed;const safe=Math.min(asyncMax*0.6,0.05*CS);const n=Math.max(1,Math.min(8,Math.ceil(total/safe)));const h=Math.min(total/n,safe);
     for(let k=0;k<n;k++){simStep(h,rates,k===0);simTime+=h;}lastSteps=n;}
   pass(P.wvis,wvis,{uBathy:bathy[bi],uQ:Qt[qi],uCs:CS,...SIM});
   // readback for picking (heights) and the panel (water volume)
@@ -806,7 +821,7 @@ async function startXR(mode){
 }
 function xrFrame(t,frame){
   const s=frame.session;s.requestAnimationFrame(xrFrame);
-  const dt=xrLast==null?1/72:Math.min((t-xrLast)/1000,0.05);xrLast=t;
+  const raw=xrLast==null?1/72:(t-xrLast)/1000,dt=Math.min(raw,0.05);xrLast=t;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;
   const pose=frame.getViewerPose(xrRef);if(!pose)return;
   const ctrls=[];
   for(const src of s.inputSources){const rp=src.targetRaySpace?frame.getPose(src.targetRaySpace,xrRef):null,gp=src.gripSpace?frame.getPose(src.gripSpace,xrRef):null;
@@ -827,7 +842,7 @@ function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);const w=Math.
 let previewLast=null,VPprev=null;
 function previewFrame(now){
   if(xrSession)return;requestAnimationFrame(previewFrame);
-  const dt=previewLast==null?1/60:Math.min((now-previewLast)/1000,0.05);previewLast=now;resize();
+  const raw=previewLast==null?1/60:(now-previewLast)/1000,dt=Math.min(raw,0.05);previewLast=now;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;resize();
   const shift=(innerWidth>900&&!$('card').hidden)?-0.45*(place.giant?3:1):0;   // keep the table clear of the instruction card
   const tgt=[place.x+shift*Math.cos(cam.yaw),place.base+0.12,place.z-shift*Math.sin(cam.yaw)],cp=Math.cos(cam.pitch);
   const eye=[tgt[0]+cam.dist*cp*Math.sin(cam.yaw),tgt[1]+cam.dist*Math.sin(cam.pitch),tgt[2]+cam.dist*cp*Math.cos(cam.yaw)];

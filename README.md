@@ -1,8 +1,28 @@
 # Virtual AR Sandbox
 
-**Live:** [shanem73.github.io/virtual-sandbox](https://shanem73.github.io/virtual-sandbox/) · [Desktop](https://shanem73.github.io/virtual-sandbox/desktop/) · [VR](https://shanem73.github.io/virtual-sandbox/vr/)
+### 🌐 Website: **[shanem73.github.io/virtual-sandbox](https://shanem73.github.io/virtual-sandbox/)**
 
-A browser and VR version of the [Augmented Reality Sandbox](https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html). You shape virtual sand, and the elevation colors, contour lines and a real-time water simulation update as you go.
+| | Open the app |
+|---|---|
+| 🖥️ **Desktop** (Windows, any browser) | **https://shanem73.github.io/virtual-sandbox/desktop/** |
+| 🥽 **VR** (Meta Quest Browser) | **https://shanem73.github.io/virtual-sandbox/vr/** |
+
+**Designer:** Xin Miao, Missouri State University
+
+The [Augmented Reality Sandbox](https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html), moved from a physical box of sand into a virtual 3D world. You shape virtual sand, and the elevation colors, contour lines and a real-time water simulation update as you go.
+
+## The idea
+
+A physical AR Sandbox is a great way to teach topographic maps, contour lines and watersheds. Building one takes a sandbox, a Kinect depth camera, a projector, a **Linux** computer and a careful calibration, so most students only get to use one if their campus or a nearby museum has it.
+
+This project keeps the part that makes the sandbox work, the original SARndbox water simulation, and drops the hardware. The sand is virtual, and the projector becomes the screen or a VR headset. Everything runs in a web browser on **Windows**, the system most students already have, so access is as easy as opening a link.
+
+| | Physical AR Sandbox | Virtual AR Sandbox |
+|---|---|---|
+| Computer | Linux (Vrui toolkit) | Windows, or any OS with a modern browser |
+| Sensor | Kinect depth camera | Mouse, touch, or VR controllers |
+| Display | Projector over the sand | Screen or Meta Quest headset |
+| Setup | Build, install, calibrate | Open a link |
 
 The water is the original **SARndbox 2.8** solver (a Kurganov–Petrova central-upwind shallow-water scheme), ported from GLSL to WebGL2. The constants are the same as the original (θ = 1.3, g = 9.81, attenuation 127/128), and so are the units (centimetres and seconds).
 
@@ -80,10 +100,20 @@ A panel above your left hand shows the current tool, brush size and water volume
 
 ## Technical notes
 
-- **Grid:**
-  - The desktop version uses 400 × 300 water cells (0.4 cm).
-  - The VR version defaults to 256 × 192 (0.63 cm) so a Quest 2 holds 72 fps. Add `?grid=high` to the VR URL for the full grid on PC VR.
-- **Readback in VR:** the VR version reads data back from the GPU asynchronously, using pixel buffers and fences, because Quest's tiled GPU stalls on synchronous `readPixels`. That data is the CFL step size, the sand heights used for pointing, and the water totals.
+- **Simulation detail:** both apps let you choose the grid. Smaller cells look smoother but cost more: halving the cell size is about 8× the work.
+
+  | App | Level | Grid | Cell size |
+  |---|---|---|---|
+  | Desktop | Standard (default) | 400 × 300 | 0.40 cm |
+  | Desktop | High (the original SARndbox's default) | 640 × 480 | 0.25 cm |
+  | Desktop | Ultra (fast graphics card) | 800 × 600 | 0.20 cm |
+  | VR | Quest 2 (default) | 256 × 192 | 0.63 cm |
+  | VR | Quest 2 high | 320 × 240 | 0.50 cm |
+  | VR | PC VR | 400 × 300 | 0.40 cm |
+  | VR | PC VR high | 640 × 480 | 0.25 cm |
+
+  The desktop app shows the frame rate in its corner, and the VR wrist panel shows it in the headset. Quest 2 should stay near 72 fps; if it drops below about 68, pick a lower level.
+- **Non-blocking readback:** both apps read data back from the GPU asynchronously, using pixel buffers and fences, so the GPU never waits on `readPixels`. That data is the CFL step size, the sand heights used for pointing, and the water totals. Like SARndbox, the simulation takes at most 30 steps per frame.
 - **Floating-point textures:** both versions need `EXT_color_buffer_float`, which the Quest Browser and all current desktop browsers support.
 - **Shared code:** the solver, render shaders and landscape generators are the same code in both files.
 
@@ -92,7 +122,30 @@ A panel above your left hand shows the current tool, brush size and water volume
 - A small bridge app that streams depth frames from a real camera (Kinect v1 or v2, Azure Kinect / Orbbec Femto Bolt, RealSense) so the physical sandbox can drive these pages.
 - Hand tracking in VR.
 
+## History of the physical AR Sandbox
+
+- **Origin:** a video of “Sandy Station,” a prototype by Czech researchers that colored sand by elevation and added simple water flow, inspired the UC Davis team.
+- **2012:** Oliver Kreylos at the UC Davis W.M. Keck Center for Active Visualization in the Earth Sciences (KeckCAVES) develops the AR Sandbox. It's part of **LakeViz3D**, an NSF-funded informal science education project on freshwater lakes and watersheds (grants 1114663 and 1135588).
+- **2012:** the first sandboxes open at UC Davis, the Lawrence Hall of Science, the UC Davis Tahoe Environmental Research Center, and the ECHO Lake Aquarium and Science Center.
+- **2012–2021:** the SARndbox software is released as open source (GPL). It runs on Linux with the Vrui VR toolkit and a Kinect camera. Version 2.4 adds Kinect v2 and Intel RealSense support, and 2.7 adds remote streaming.
+- **March 9, 2021:** SARndbox 2.8 is released. This project's water simulation is ported from it.
+- **2022:** a community support forum opens for sandbox builders.
+- **Since then:** more than 150 universities, research centers, government agencies and schools have adopted the AR Sandbox, according to *Eos*.
+- **2026:** Xin Miao moves the sandbox into a virtual 3D environment that runs in a browser on Windows and in VR on Meta Quest.
+
+### Links
+
+- [Augmented Reality Sandbox project page](https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html) (Oliver Kreylos, UC Davis)
+- [Build instructions for a physical sandbox](https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/Instructions.html)
+- [SARndbox source code download](https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/Download.html)
+- [“Augmented Reality Turns a Sandbox into a Geoscience Lesson”](https://eos.org/science-updates/augmented-reality-turns-a-sandbox-into-a-geoscience-lesson), *Eos*
+- [AR Sandbox community forum](http://doc-ok.org/?forum=ar-sandbox-forum)
+
 ## Credits and license
+
+**Designer:** Xin Miao, Missouri State University.
+
+
 
 Based on the Augmented Reality Sandbox by Oliver Kreylos, UC Davis W.M. Keck Center for Active Visualization in the Earth Sciences (KeckCAVES). The original was supported by NSF grants 1114663 and 1135588.
 

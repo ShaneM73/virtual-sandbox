@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<style>@media (max-width:1500px){.brand p{display:none!important}}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>Virtual AR Sandbox</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -128,6 +128,7 @@ input[type=file]{font-size:13px;max-width:100%}
 
 <div class="app">
   <header class="bar">
+    <a class="btn" href="../" style="text-decoration:none" title="Back to the project home page">← Main page</a>
     <div class="brand"><h1>Virtual <span>AR</span> Sandbox</h1><p>SARndbox 2.8 water physics, running in your browser</p></div>
     <div class="spacer"></div>
     <div class="seg" role="group" aria-label="View">
@@ -168,6 +169,7 @@ input[type=file]{font-size:13px;max-width:100%}
       <dt>Max depth</dt><dd id="hMax">–</dd>
       <dt>Sim time</dt><dd id="hTime">–</dd>
       <dt>Steps/frame</dt><dd id="hSteps">–</dd>
+      <dt>Frame rate</dt><dd id="hFps">–</dd>
       <dt>Probe</dt><dd id="hProbe">–</dd>
     </dl>
   </main>
@@ -225,6 +227,13 @@ input[type=file]{font-size:13px;max-width:100%}
     <details open>
       <summary><span class="dot" style="background:#c9c3b6"></span>Display</summary>
       <div class="sec">
+        <div class="row"><label for="detail">Simulation detail</label><span></span>
+          <select id="detail" style="grid-column:1/-1">
+            <option value="standard">Standard: 400 × 300 cells, 0.40 cm</option>
+            <option value="high">High: 640 × 480 cells, 0.25 cm (original SARndbox)</option>
+            <option value="ultra">Ultra: 800 × 600 cells, 0.20 cm (fast graphics card)</option>
+          </select></div>
+        <p class="note">Changing detail restarts the sandbox. Watch the frame rate in the corner; stay above about 40 fps.</p>
         <div class="row"><label for="cmap">Color map</label><span></span>
           <select id="cmap" style="grid-column:1/-1">
             <option value="sarndbox">SARndbox (original)</option>
@@ -279,8 +288,9 @@ input[type=file]{font-size:13px;max-width:100%}
     <details>
       <summary><span class="dot" style="background:var(--muted)"></span>About</summary>
       <div class="sec">
-        <p class="note">A virtual version of the Augmented Reality Sandbox by Oliver Kreylos (UC Davis KeckCAVES). The water is the original SARndbox 2.8 solver, a Kurganov–Petrova shallow-water scheme, ported from GLSL to WebGL2 with the same constants (θ = 1.3, g = 9.81, attenuation 127/128). The virtual box is 160 × 120 cm on a 400 × 300 grid (0.4 cm cells).</p>
-        <p class="note">Added beyond the original: angle-of-repose sand slumping, springs, sinkholes, Green–Ampt infiltration and a flow-speed view. The original is GPL-2.0-or-later, and this port carries the same license. <a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html" target="_blank" rel="noopener">Original project page</a></p>
+        <p class="note"><b>Designed by Xin Miao</b>, Missouri State University. The idea is to move the physical AR Sandbox into a virtual 3D world that any student can open in a web browser on Windows, with no Linux computer, depth camera or projector needed.</p>
+        <p class="note">Based on the Augmented Reality Sandbox by Oliver Kreylos (UC Davis KeckCAVES, 2012), built for the NSF-funded LakeViz3D project and now used at more than 150 sites worldwide. The water is the original SARndbox 2.8 solver, a Kurganov–Petrova shallow-water scheme, ported from GLSL to WebGL2 with the same constants (θ = 1.3, g = 9.81, attenuation 127/128). The virtual box is 160 × 120 cm on a <span id="gridText"></span> grid.</p>
+        <p class="note">Added beyond the original: angle-of-repose sand slumping, springs, sinkholes, Green–Ampt infiltration and a flow-speed view. The original is GPL-2.0-or-later, and this port carries the same license. <a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html" target="_blank" rel="noopener">Original project page</a> · <a href="https://github.com/ShaneM73/virtual-sandbox" target="_blank" rel="noopener">Source code and VR version</a></p>
       </div>
     </details>
   </aside>
@@ -298,8 +308,12 @@ input[type=file]{font-size:13px;max-width:100%}
    matching SARndbox, where the camera reports centimetres.
    ============================================================ */
 const LX=160,LY=120;                   // box size in cm
-const W=400,H=300,BW=W-1,BH=H-1;      // water cells / bathymetry corners
-const CS=LX/W;                          // 0.4 cm per cell
+const DETAIL={standard:[400,300,'Standard'],high:[640,480,'High'],ultra:[800,600,'Ultra']};
+let detail='standard';try{detail=localStorage.getItem('sandboxDetail')||detail;}catch(e){}
+{const h=(location.hash||'').slice(1);if(DETAIL[h])detail=h;}
+if(!DETAIL[detail])detail='standard';
+const W=DETAIL[detail][0],H=DETAIL[detail][1],BW=W-1,BH=H-1;   // water cells / bathymetry corners
+const CS=LX/W;                          // cell size in cm (0.4 at Standard)
 const KD=100/LX;                        // landscapes are designed on a 100 × 75 template and scaled to the box
 const ZMIN=-25,ZMAX=25;                 // sand depth range inside the box
 const $=id=>document.getElementById(id);
@@ -644,7 +658,7 @@ const wvis=tex(W,H,null,'16f');
 const demTex=tex(BW,BH);
 const SIM={uQSize:[W,H],uBSize:[BW,BH],uCell:[CS,CS],uTheta:1.3,uG:9.81,uEps:0.01*Math.max(CS,1)};
 
-const bCPU=new Float32Array(BW*BH*4),qCPU=new Float32Array(W*H*4),fCPU=new Float32Array(W*H*4);
+const bCPU=new Float32Array(BW*BH*4),qCPU=new Float32Array(W*H*4);
 const one=new Float32Array(4);
 
 /* ---------------- Settings ---------------- */
@@ -717,26 +731,39 @@ function loadPreset(name){
   if(name==='karst'){springs=[[5,yc(5)-3,2]];sinks=KARST.map(([x,y])=>[x,y,1.6]);}
   setWater(a,fill);setFeatures(springs,sinks);
   if(name!=='island'&&S.dry===0&&name!=='flat'){setSel('edges','1');S.dry=1;}
-  simTime=0;$('hint').textContent=HINTS[name];readAll();
+  simTime=0;$('hint').textContent=HINTS[name];readAll();if(typeof syncMaxStep==='function')syncMaxStep();
 }
 
+/* ---------------- Non-blocking GPU readback (pixel buffer + fence) ----------------
+   Waiting on readPixels every water step stalls the GPU, which adds up at the
+   High and Ultra grids. The CFL step size, heights and water now arrive a frame
+   or two late instead. Each read is tagged so data from before a reset is dropped. */
+function makeReader(w,h){const arr=new Float32Array(w*h*4),buf=gl.createBuffer();gl.bindBuffer(gl.PIXEL_PACK_BUFFER,buf);gl.bufferData(gl.PIXEL_PACK_BUFFER,w*h*16,gl.STREAM_READ);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);
+  return {arr,buf,fence:null,gen:0,
+    request(t,gen){if(this.fence)return false;gl.bindFramebuffer(gl.FRAMEBUFFER,fbo(t));gl.bindBuffer(gl.PIXEL_PACK_BUFFER,this.buf);
+      gl.readPixels(0,0,t.w,t.h,gl.RGBA,gl.FLOAT,0);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);this.fence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();this.gen=gen;return true;},
+    poll(){if(!this.fence)return false;const st=gl.clientWaitSync(this.fence,gl.SYNC_FLUSH_COMMANDS_BIT,0);if(st===gl.TIMEOUT_EXPIRED)return false;
+      gl.deleteSync(this.fence);this.fence=null;gl.bindBuffer(gl.PIXEL_PACK_BUFFER,this.buf);gl.getBufferSubData(gl.PIXEL_PACK_BUFFER,0,this.arr);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);return true;}};}
+const maxReader=makeReader(1,1),bathyReader=makeReader(BW,BH),qReader=makeReader(W,H);
+let asyncMax=0.002,stateGen=0;
+
 /* ---------------- Simulation step (WaterTable2::runSimulationStep) ---------------- */
-function maxStep(){
+function reduceMax(){
   pass(P.reduce,red1,{uSrc:maxT,uSrcSize:[W,H]});
   pass(P.reduce,red2,{uSrc:red1,uSrcSize:[red1.w,red1.h]});
   pass(P.reduce,red3,{uSrc:red2,uSrcSize:[red2.w,red2.h]});
-  readTex(red3,one);return one[0];
 }
-function simStep(maxDt,rates){
+function syncMaxStep(){pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:Qt[qi],...SIM});reduceMax();readTex(red3,one);if(isFinite(one[0])&&one[0]>0)asyncMax=one[0];}
+function simStep(dt,rates,measure){
   const q0=Qt[qi],q1=Qt[(qi+1)%3],q2=Qt[(qi+2)%3];
   pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:q0,...SIM});
-  let dt=Math.min(maxStep(),maxDt);if(!(dt>0)||!isFinite(dt)) dt=maxDt;
+  if(measure){reduceMax();maxReader.request(red3,0);}
   const att=Math.pow(1-S.atten,dt);
   pass(P.euler,qStar,{uBathy:bathy[bi],uQ:q0,uD:deriv,uDt:dt,uAtt:att,...SIM});
   pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:qStar,...SIM});
   pass(P.rk,q1,{uBathy:bathy[bi],uQ:q0,uQs:qStar,uD:deriv,uDt:dt,uAtt:att,uDry:S.dry,...SIM});
   pass(P.water,[q2,feat[1-fi]],{uBathy:bathy[bi],uQ:q1,uFeat:feat[fi],uDt:dt,uGlobal:rates.global,uEvap:S.evap,uBrush:rates.brush,uCs:CS,uKs:S.ks,uPsi:S.psi,...SIM});
-  qi=(qi+2)%3;fi=1-fi;return dt;
+  qi=(qi+2)%3;fi=1-fi;
 }
 
 /* ---------------- Camera ---------------- */
@@ -838,7 +865,7 @@ function pick(px,py){if(!INV)return null;const a=unproject(px,py,-1),b=unproject
 /* ---------------- Readback & stats ---------------- */
 let skirtBase=-3;
 function edgeMin(){let m=1e9;const at=(i,j)=>bCPU[(j*BW+i)*4];for(let i=0;i<BW;i++){m=Math.min(m,at(i,0),at(i,BH-1));}for(let j=0;j<BH;j++){m=Math.min(m,at(0,j),at(BW-1,j));}return m;}
-function readAll(){readTex(bathy[bi],bCPU);readTex(Qt[qi],qCPU);readTex(feat[fi],fCPU);skirtBase=edgeMin()-2;}
+function readAll(){stateGen++;readTex(bathy[bi],bCPU);readTex(Qt[qi],qCPU);skirtBase=edgeMin()-2;}
 function cellDepth(x,y){const B=(i,j)=>bCPU[(Math.min(BH-1,Math.max(0,j))*BW+Math.min(BW-1,Math.max(0,i)))*4];
   const b=(B(x-1,y-1)+B(x,y-1)+B(x-1,y)+B(x,y))*0.25;return Math.max(qCPU[(y*W+x)*4]-b,0);}
 let demArr=null,fileDem=null;
@@ -890,7 +917,7 @@ canvas.addEventListener('wheel',e=>{e.preventDefault();if(S.view!=='3d')return;c
 function beginStroke(px,py){if(!BRUSH_TOOLS.has(S.tool))return;readTex(bathy[bi],bCPU);const p=pick(px,py);
   if(['raise','dig','smooth','flatten'].includes(S.tool)){const snap=new Float32Array(BW*BH);for(let k=0;k<BW*BH;k++)snap[k]=bCPU[k*4];undoStack.push(snap);if(undoStack.length>20)undoStack.shift();$('undo').disabled=false;}
   if(p)flattenLevel=p[2];strokeActive=true;}
-function endStroke(){if(strokeActive){strokeActive=false;readAll();}}
+function endStroke(){if(strokeActive){strokeActive=false;readTimer=0;}}
 
 /* ---------------- Per-frame terrain & feature edits ---------------- */
 function applyBrush(dt){
@@ -905,7 +932,7 @@ function applyBrush(dt){
 }
 
 /* ---------------- Main loop ---------------- */
-let lastT=performance.now(),readTimer=0,fpsAcc=0,fpsN=0;
+let lastT=performance.now(),readTimer=0,fpsLast=performance.now(),fpsSm=60,fpsTimer=0;
 function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);const r=canvas.getBoundingClientRect();const w=Math.max(1,Math.round(r.width*dpr)),h=Math.max(1,Math.round(r.height*dpr));
   if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}}
 function frame(now){
@@ -920,8 +947,9 @@ function frame(now){
   let localRate=0;if(br==='water'&&brushPt)localRate=(S.tool==='rain'?1:-1)*S.rainRate*4;
   const rates={global:(S.contRain?S.rainRate*0.12:0)+(S.holdRain?S.rainRate*2:0)-(S.holdDrain?S.rainRate*2:0),
     brush:localRate&&brushPt?[brushPt[0],brushPt[1],S.brushR,localRate]:[0,0,0,0]};
-  if(!S.paused){let remaining=dtReal*S.speed,steps=0;
-    while(remaining>1e-6&&steps<24){const dt=simStep(remaining,rates);remaining-=dt;simTime+=dt;steps++;}lastSteps=steps;}
+  if(maxReader.poll()){const m=maxReader.arr[0];if(isFinite(m)&&m>0)asyncMax=m;}
+  if(!S.paused){const total=dtReal*S.speed,safe=Math.min(asyncMax*0.6,0.05*CS);const n=Math.max(1,Math.min(30,Math.ceil(total/safe)));const h=Math.min(total/n,safe);   // up to 30 steps, as SARndbox's waterMaxSteps
+    for(let k=0;k<n;k++){simStep(h,rates,k===0);simTime+=h;}lastSteps=n;}
   // 3. render
   pass(P.wvis,wvis,{uBathy:bathy[bi],uQ:Qt[qi],uCs:CS,...SIM});
   gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
@@ -941,7 +969,11 @@ function frame(now){
     gl.bindVertexArray(waterMesh.vao);gl.drawElements(gl.TRIANGLES,waterMesh.n,gl.UNSIGNED_INT,0);gl.depthMask(true);gl.disable(gl.BLEND);}
   gl.bindVertexArray(null);
   // 4. periodic readback for picking and stats
-  readTimer-=dtReal;if(readTimer<=0){readTimer=0.25;readAll();stats();}
+  if(bathyReader.poll()&&bathyReader.gen===stateGen){bCPU.set(bathyReader.arr);skirtBase=Math.min(skirtBase,edgeMin()-2);}
+  if(qReader.poll()&&qReader.gen===stateGen){qCPU.set(qReader.arr);stats();}
+  readTimer-=dtReal;if(readTimer<=0){readTimer=0.25;bathyReader.request(bathy[bi],stateGen);qReader.request(Qt[qi],stateGen);}
+  const fps=1/Math.max((now-fpsLast)/1000,1e-3);fpsLast=now;fpsSm=fpsSm*0.92+fps*0.08;fpsTimer-=dtReal;
+  if(fpsTimer<=0){fpsTimer=0.5;const e=$('hFps');e.textContent=fpsSm.toFixed(0)+' fps';e.style.color=fpsSm<30?'var(--warn)':(fpsSm<45?'var(--sand)':'');}
   requestAnimationFrame(frame);
 }
 
@@ -1064,7 +1096,10 @@ $('helpBtn').addEventListener('click',()=>openModal('Controls',`<div class="keys
 <p class="note" style="margin-top:12px">Projector view shows exactly what the real sandbox projects onto the sand: a top-down map with contour lines and water painted on. “Rain here” stands in for the hand gesture that makes rain in the physical sandbox.</p>`));
 
 /* ---------------- Start ---------------- */
-buildCmap();setTool('raise');loadPreset('river');
+buildCmap();setTool('raise');loadPreset('river');syncMaxStep();
+$('gridText').textContent=`${W} × ${H} (${CS.toFixed(2)} cm cells)`;$('detail').value=detail;
+$('detail').addEventListener('change',e=>{const v=e.target.value;try{localStorage.setItem('sandboxDetail',v);}catch(err){}
+  location.hash=v;location.reload();});
 {const r=canvas.getBoundingClientRect();if(r.width/Math.max(r.height,1)<1.15)cam.dist=370;}
 requestAnimationFrame(t=>{lastT=t;requestAnimationFrame(frame);});
 </script>

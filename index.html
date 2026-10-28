@@ -4,50 +4,131 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Virtual AR Sandbox</title>
-<meta name="description" content="A browser and VR version of the Augmented Reality Sandbox, with the original SARndbox 2.8 water physics.">
+<meta name="description" content="The Augmented Reality Sandbox, moved into a virtual 3D world that runs in a web browser on Windows and in VR on Meta Quest. Designed by Xin Miao.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-:root{--bg:#121518;--desk:#191d21;--line:#2c333b;--fg:#e9e4d8;--muted:#98a1aa;--sand:#d8b46a;--water:#58a9e6;
-  --f-ui:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;color-scheme:dark}
+/* Layout: one centred column. Hero and the two apps side by side, then the project story and the history of the physical sandbox as a dated timeline. */
+:root{--bg:#121518;--desk:#191d21;--desk-2:#20252b;--line:#2c333b;--fg:#e9e4d8;--muted:#98a1aa;--sand:#d8b46a;--water:#58a9e6;
+  --f-ui:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;--f-data:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;color-scheme:dark}
 *{box-sizing:border-box}
-body{margin:0;min-height:100vh;background:radial-gradient(120% 80% at 50% 0%,#232930 0%,var(--bg) 70%);color:var(--fg);font-family:var(--f-ui);font-size:17px;line-height:1.45;
-  padding:48px max(16px,env(safe-area-inset-left,0px)) 40px max(16px,env(safe-area-inset-right,0px))}
-main{max-width:860px;margin:0 auto}
-h1{margin:0;font-size:clamp(30px,6vw,46px);letter-spacing:.05em;text-transform:uppercase;text-wrap:balance}
+body{margin:0;min-height:100vh;background:radial-gradient(120% 60% at 50% 0%,#232930 0%,var(--bg) 60%) var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:17px;line-height:1.5;
+  padding:48px max(16px,env(safe-area-inset-right,0px)) 48px max(16px,env(safe-area-inset-left,0px))}
+main{max-width:900px;margin:0 auto}
+h1{margin:0;font-size:clamp(32px,6vw,48px);letter-spacing:.05em;text-transform:uppercase;line-height:1.1;text-wrap:balance}
 h1 span{color:var(--sand)}
-.lede{color:var(--muted);max-width:62ch;margin:10px 0 30px}
-.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
-@media (max-width:560px){.grid{grid-template-columns:1fr}}
+.lede{color:var(--muted);max-width:64ch;margin:12px 0 30px}
+.byline{font-family:var(--f-data);font-size:13px;color:var(--muted);letter-spacing:.02em;margin-top:10px}
+.byline b{color:var(--fg);font-weight:500}
+.apps{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+@media (max-width:560px){.apps{grid-template-columns:1fr}}
 a.card{display:flex;flex-direction:column;gap:6px;text-decoration:none;color:inherit;background:var(--desk);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
 a.card:hover,a.card:focus-visible{border-color:var(--sand);outline:none}
-.card h2{margin:0;font-size:24px}
+.card .tag{font-family:var(--f-data);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.card h2{margin:0;font-size:25px}
 .card p{margin:0;color:var(--muted)}
 .card .go{margin-top:auto;padding-top:12px;font-weight:700;color:var(--sand)}
 .card.vr .go{color:var(--water)}
-footer{margin-top:34px;color:var(--muted);font-size:14.5px;max-width:70ch}
+section{margin-top:48px}
+h3{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
+.story{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px}
+@media (max-width:700px){.story{grid-template-columns:1fr}}
+.story p{margin:0 0 12px;max-width:62ch}
+.designer{background:var(--desk);border:1px solid var(--line);border-radius:12px;padding:18px 20px;align-self:start}
+.designer .role{font-family:var(--f-data);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--sand)}
+.designer .name{font-size:26px;font-weight:700;margin:2px 0}
+.designer .org{color:var(--muted)}
+.compare{margin-top:14px;display:grid;grid-template-columns:auto 1fr 1fr;gap:6px 14px;font-size:14.5px}
+.compare div{min-width:0}
+.compare .h{font-family:var(--f-data);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.compare .k{color:var(--muted)}
+ol.timeline{list-style:none;margin:0;padding:0;border-left:2px solid var(--line)}
+ol.timeline li{position:relative;display:grid;grid-template-columns:96px minmax(0,1fr);gap:14px;padding:0 0 18px 18px}
+ol.timeline li::before{content:"";position:absolute;left:-6px;top:7px;width:10px;height:10px;border-radius:50%;background:var(--desk-2);border:2px solid var(--sand)}
+ol.timeline li.now::before{background:var(--sand)}
+.when{font-family:var(--f-data);font-size:13px;color:var(--sand);padding-top:2px;font-variant-numeric:tabular-nums}
+.what b{display:block;font-size:18px}
+.what span{color:var(--muted)}
+@media (max-width:520px){ol.timeline li{grid-template-columns:1fr;gap:2px}}
+ul.links{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+ul.links a{display:block;background:var(--desk);border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--fg);text-decoration:none}
+ul.links a:hover,ul.links a:focus-visible{border-color:var(--water);outline:none}
+ul.links small{display:block;color:var(--muted);font-size:14px}
+footer{margin-top:44px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:14.5px}
 footer a{color:var(--water)}
 </style>
 </head>
 <body>
 <main>
   <h1>Virtual <span>AR</span> Sandbox</h1>
-  <p class="lede">Shape sand and watch water flow over it in real time. Both versions run the water solver from the UC Davis Augmented Reality Sandbox (SARndbox 2.8), ported to WebGL2, on a 160 × 120 cm virtual box.</p>
-  <div class="grid">
+  <p class="byline">Designed by <b>Xin Miao</b> · Missouri State University</p>
+  <p class="lede">The Augmented Reality Sandbox, moved from a physical box of sand into a virtual 3D world. It runs in a web browser on an ordinary Windows computer, or in VR on a Meta Quest, so any student can shape a landscape and watch water flow over it.</p>
+
+  <div class="apps">
     <a class="card" href="desktop/">
-      <h2>Desktop</h2>
-      <p>Mouse or touch. 3D and projector views, seven landscapes, terrain-model matching, infiltration, and ESRI ASCII grid export.</p>
+      <span class="tag">Windows · any browser</span>
+      <h2>Desktop sandbox</h2>
+      <p>Mouse or touch. 3D and projector views, seven landscapes, terrain-model matching, soil infiltration, and elevation grids you can open in GIS software.</p>
       <span class="go">Open the desktop sandbox →</span>
     </a>
     <a class="card vr" href="vr/">
-      <h2>VR (Meta Quest)</h2>
-      <p>Open in the Meta Quest Browser. The sandbox sits on a table in front of you. Sculpt with the right controller, make rain with the left, or switch to giant scale and walk through the landscape.</p>
+      <span class="tag">Meta Quest · WebXR</span>
+      <h2>VR sandbox</h2>
+      <p>Open in the Meta Quest Browser. The sandbox sits on a table in front of you. Sculpt with the right controller, make rain with the left, or switch to giant scale and walk through the valleys.</p>
       <span class="go">Open the VR sandbox →</span>
     </a>
   </div>
-  <footer>Based on the Augmented Reality Sandbox by Oliver Kreylos (UC Davis KeckCAVES). Licensed under the GNU GPL v2 or later.
-    <a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html">Original project</a></footer>
+
+  <section aria-labelledby="idea">
+    <h3 id="idea">The idea</h3>
+    <div class="story">
+      <div>
+        <p>The physical AR Sandbox is one of the best tools there is for teaching topographic maps, contour lines and watersheds. Building one, though, takes a sandbox, a depth camera, a projector, a Linux computer and a careful calibration. Most students only get to use one if their campus or a nearby museum has it.</p>
+        <p>This project keeps what makes the sandbox work and drops the hardware. The water still runs on the original SARndbox simulation, ported unchanged in its physics. The sand is virtual, the projector is the screen or the headset, and everything runs in a web browser on Windows, the system most students already have.</p>
+      </div>
+      <aside class="designer" aria-label="Designer">
+        <div class="role">Designer</div>
+        <div class="name">Xin Miao</div>
+        <div class="org">Missouri State University</div>
+        <div class="compare" role="table" aria-label="Physical and virtual sandbox compared">
+          <div class="h" role="columnheader"></div><div class="h" role="columnheader">Physical</div><div class="h" role="columnheader">Virtual</div>
+          <div class="k">Computer</div><div>Linux</div><div>Windows, any browser</div>
+          <div class="k">Sensor</div><div>Kinect camera</div><div>Mouse, touch, VR controllers</div>
+          <div class="k">Display</div><div>Projector on sand</div><div>Screen or VR headset</div>
+          <div class="k">Setup</div><div>Build and calibrate</div><div>Open a link</div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section aria-labelledby="history">
+    <h3 id="history">History of the physical AR Sandbox</h3>
+    <ol class="timeline">
+      <li><div class="when">Origin</div><div class="what"><b>The spark</b><span>A video of “Sandy Station,” a prototype by Czech researchers that colored sand by elevation and added simple water flow, inspired the UC Davis team.</span></div></li>
+      <li><div class="when">2012</div><div class="what"><b>Built at UC Davis</b><span>Oliver Kreylos at the W.M. Keck Center for Active Visualization in the Earth Sciences (KeckCAVES) develops the AR Sandbox. It is part of LakeViz3D, an NSF-funded informal science education project on freshwater lakes and watersheds (grants 1114663 and 1135588).</span></div></li>
+      <li><div class="when">2012</div><div class="what"><b>First exhibits</b><span>The first sandboxes open at UC Davis, the Lawrence Hall of Science in Berkeley, the UC Davis Tahoe Environmental Research Center, and the ECHO Lake Aquarium and Science Center in Vermont.</span></div></li>
+      <li><div class="when">2012–2021</div><div class="what"><b>Open-source software</b><span>SARndbox is released under the GNU GPL. It runs on Linux with the Vrui VR toolkit and a Kinect camera. Later versions add support for the Kinect v2 and Intel RealSense cameras (2.4) and remote streaming (2.7).</span></div></li>
+      <li><div class="when">2021</div><div class="what"><b>SARndbox 2.8</b><span>Released March 9, 2021. It's the version this project's water simulation is ported from.</span></div></li>
+      <li><div class="when">2022</div><div class="what"><b>Community forum</b><span>A user support forum opens for the many groups building their own sandboxes.</span></div></li>
+      <li><div class="when">Since then</div><div class="what"><b>Worldwide</b><span>More than 150 universities, research centers, government agencies and schools have adopted the AR Sandbox for teaching topography, hydrology and geology, according to Eos.</span></div></li>
+      <li class="now"><div class="when">2026</div><div class="what"><b>Virtual AR Sandbox</b><span>Xin Miao moves the sandbox into a virtual 3D environment that runs in a browser on Windows and in VR on Meta Quest, so students can use it without the special hardware.</span></div></li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="links">
+    <h3 id="links">Learn more about the original</h3>
+    <ul class="links">
+      <li><a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html">Augmented Reality Sandbox<small>Project page by Oliver Kreylos, UC Davis</small></a></li>
+      <li><a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/Instructions.html">Build instructions<small>Hardware, setup and calibration for a physical sandbox</small></a></li>
+      <li><a href="https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/Download.html">SARndbox software<small>Original source code (GPL)</small></a></li>
+      <li><a href="https://eos.org/science-updates/augmented-reality-turns-a-sandbox-into-a-geoscience-lesson">Augmented Reality Turns a Sandbox into a Geoscience Lesson<small>Eos article on the sandbox's history and classroom use</small></a></li>
+      <li><a href="http://doc-ok.org/?forum=ar-sandbox-forum">AR Sandbox forum<small>Community support for sandbox builders</small></a></li>
+      <li><a href="https://github.com/ShaneM73/virtual-sandbox">This project on GitHub<small>Source code for the desktop and VR versions</small></a></li>
+    </ul>
+  </section>
+
+  <footer>Virtual AR Sandbox, designed by Xin Miao (Missouri State University). Built on the Augmented Reality Sandbox by Oliver Kreylos, UC Davis KeckCAVES. Free software under the GNU General Public License, version 2 or later.</footer>
 </main>
 </body>
 </html>

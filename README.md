@@ -7,7 +7,7 @@
 | 🖥️ **Desktop** (Windows, any browser) | **https://shanem73.github.io/virtual-sandbox/desktop/** |
 | 🥽 **VR** (Meta Quest Browser) | **https://shanem73.github.io/virtual-sandbox/vr/** |
 
-**Designer:** Xin Miao, Missouri State University
+**Designer:** Prof. Xin (Shane) Miao, Missouri State University
 
 The [Augmented Reality Sandbox](https://www.cs.ucdavis.edu/~okreylos/ResDev/SARndbox/MainPage.html), moved from a physical box of sand into a virtual 3D world. You shape virtual sand, and the elevation colors, contour lines and a real-time water simulation update as you go.
 
@@ -131,7 +131,7 @@ A panel above your left hand shows the current tool, brush size and water volume
 - **March 9, 2021:** SARndbox 2.8 is released. This project's water simulation is ported from it.
 - **2022:** a community support forum opens for sandbox builders.
 - **Since then:** more than 150 universities, research centers, government agencies and schools have adopted the AR Sandbox, according to *Eos*.
-- **2026:** Xin Miao moves the sandbox into a virtual 3D environment that runs in a browser on Windows and in VR on Meta Quest.
+- **2026:** Prof. Xin (Shane) Miao moves the sandbox into a virtual 3D environment that runs in a browser on Windows and in VR on Meta Quest.
 
 ### Links
 
@@ -143,7 +143,7 @@ A panel above your left hand shows the current tool, brush size and water volume
 
 ## Credits and license
 
-**Designer:** Xin Miao, Missouri State University.
+**Designer:** Prof. Xin (Shane) Miao, Missouri State University.
 
 
 

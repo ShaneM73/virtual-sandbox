@@ -80,6 +80,21 @@ You can open `desktop/index.html` straight from disk. For VR on a headset you ne
 
 A panel above your left hand shows the current tool, brush size and water volume.
 
+### VR keyboard
+
+Works in the desktop preview of the VR page, in PC VR, and with a Bluetooth keyboard paired to the Quest.
+
+| Key | Action | Key | Action |
+|---|---|---|---|
+| `W` `A` `S` `D` / arrows | Walk | `1`–`9` | Pick a tool |
+| `Q` / `E` | Turn (30° steps in the headset) | Hold `R` / `F` | Rain / drain over the whole box |
+| `PgUp` / `PgDn` | Fly up / down | `Space` | Pause or resume the water |
+| `Shift` | Move faster | `N` · `G` · `C` · `M` | Next landscape · giant scale · contours · color map |
+| `I` `J` `K` `L` | Move the sandbox | `−` / `=` | Vertical exaggeration |
+| `U` / `O` | Lower / raise the sandbox | `[` / `]` | Brush size |
+| `,` / `.` | Rotate the sandbox | `Z` | Undo the last sand stroke |
+| `H` | Reset the view and the sandbox | | |
+
 ## Features
 
 - **Sand:** add, dig, smooth and flatten tools. Sand slumps when slopes pass the angle of repose, and the total volume of sand is conserved.

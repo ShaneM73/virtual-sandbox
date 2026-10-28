@@ -85,8 +85,27 @@ select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var
       <b>Y</b><span>Contour lines on or off</span>
       <b>Stick click</b><span>Undo the last sand stroke</span>
     </div>
+    <h2>Keyboard</h2>
+    <p class="hintline" style="margin:0 0 6px">Works in this preview, in PC VR, and with a Bluetooth keyboard paired to the Quest.</p>
+    <div class="map">
+      <b>W A S D / arrows</b><span>Walk</span>
+      <b>Q / E</b><span>Turn left or right (30° steps in the headset)</span>
+      <b>PgUp / PgDn</b><span>Fly up or down</span>
+      <b>Shift</b><span>Move faster</span>
+      <b>I J K L</b><span>Move the sandbox</span>
+      <b>U / O</b><span>Lower or raise the sandbox</span>
+      <b>, / .</b><span>Rotate the sandbox</span>
+      <b>H</b><span>Reset the view and the sandbox</span>
+      <b>1 – 9</b><span>Pick a tool</span>
+      <b>R / F (hold)</b><span>Rain or drain over the whole box</span>
+      <b>Space</b><span>Pause or resume the water</span>
+      <b>N · G · C · M</b><span>Next landscape · giant scale · contours · color map</span>
+      <b>− / =</b><span>Vertical exaggeration</span>
+      <b>[ / ]</b><span>Brush size</span>
+      <b>Z</b><span>Undo the last sand stroke</span>
+    </div>
     <p class="foot">The panel above your left hand shows the current tool and water stats.
-      In this preview: drag to sculpt, right-drag to orbit, scroll to zoom, 1–9 pick a tool, hold R to rain.
+      In this preview: drag to sculpt, right-drag to orbit, scroll to zoom.
       <br>Designed by Prof. Xin (Shane) Miao, Missouri State University. <a href="../">About the project</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
   </div>
   <button class="collapse" id="collapse" aria-expanded="true">Hide instructions</button>
@@ -785,7 +804,7 @@ function handleControllers(ctrls,dt){
       if(Math.abs(sy)>0.2){S.brushR=Math.min(25,Math.max(2,S.brushR-sy*dt*12));panelDirty=true;}
       if(edge(4)){S.paused=!S.paused;panelDirty=true;pulse(gp,0.3,30);}
       if(edge(5)){loadPreset(cycle(PRESETS,S.preset,1));pulse(gp,0.4,40);}
-      if(edge(3)){resetPlace();pulse(gp,0.3,30);}
+      if(edge(3)){RIG=M.I();resetPlace();pulse(gp,0.3,30);}
       if(pr(1)&&c.grip){const g=c.grip,p=[g[12],g[13],g[14]],yaw=Math.atan2(g[8],g[10]);
         if(!grab)grab={p,yaw,start:{...place}};
         place.x=grab.start.x+p[0]-grab.p[0];place.z=grab.start.z+p[2]-grab.p[2];place.base=Math.min(2,Math.max(place.giant?-2:0.2,grab.start.base+p[1]-grab.p[1]));
@@ -823,9 +842,15 @@ function xrFrame(t,frame){
   const s=frame.session;s.requestAnimationFrame(xrFrame);
   const raw=xrLast==null?1/72:(t-xrLast)/1000,dt=Math.min(raw,0.05);xrLast=t;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;
   const pose=frame.getViewerPose(xrRef);if(!pose)return;
+  // keyboard locomotion: RIG places the tracked play space in the room
+  {const a=keyAxes(),hm=M.mul(RIG,pose.transform.matrix),hp=[hm[12],hm[13],hm[14]];const fwd=norm([-hm[8],0,-hm[10]]),right=[-fwd[2],0,fwd[0]];
+    const sp=(place.giant?3:0.9)*a.fast*dt;
+    if(a.f||a.r||a.u)RIG=M.mul(M.T((fwd[0]*a.f+right[0]*a.r)*sp,a.u*sp*0.6,(fwd[2]*a.f+right[2]*a.r)*sp),RIG);
+    if(snapQueue){RIG=M.chain(M.T(hp[0],0,hp[2]),M.Ry(snapQueue*Math.PI/6),M.T(-hp[0],0,-hp[2]),RIG);snapQueue=0;}
+    moveSandbox(a,fwd,right,dt);}
   const ctrls=[];
   for(const src of s.inputSources){const rp=src.targetRaySpace?frame.getPose(src.targetRaySpace,xrRef):null,gp=src.gripSpace?frame.getPose(src.gripSpace,xrRef):null;
-    ctrls.push({hand:src.handedness,ray:rp?rp.transform.matrix:null,grip:gp?gp.transform.matrix:null,gp:src.gamepad||null});}
+    ctrls.push({hand:src.handedness,ray:rp?M.mul(RIG,rp.transform.matrix):null,grip:gp?M.mul(RIG,gp.transform.matrix):null,gp:src.gamepad||null});}
   const tool=handleControllers(ctrls,dt);
   stepWorld(dt,tool);
   const left=ctrls.find(c=>c.hand==='left'&&c.grip);
@@ -833,7 +858,7 @@ function xrFrame(t,frame){
   const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
   if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.07,0.08,0.1,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
   for(const v of pose.views){const vp=layer.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);
-    const p=v.transform.position;drawScene(M.mul(v.projectionMatrix,v.transform.inverse.matrix),[p.x,p.y,p.z],ctrls,xrAR,panelModel);}
+    const p=v.transform.position,iRig=M.inv(RIG);drawScene(M.chain(v.projectionMatrix,v.transform.inverse.matrix,iRig),xf(RIG,[p.x,p.y,p.z],1),ctrls,xrAR,panelModel);}
 }
 
 /* ---------------- Desktop preview (no headset) ---------------- */
@@ -843,8 +868,10 @@ let previewLast=null,VPprev=null;
 function previewFrame(now){
   if(xrSession)return;requestAnimationFrame(previewFrame);
   const raw=previewLast==null?1/60:(now-previewLast)/1000,dt=Math.min(raw,0.05);previewLast=now;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;resize();
+  {const a=keyAxes(),fwd=[-Math.sin(cam.yaw),0,-Math.cos(cam.yaw)],right=[Math.cos(cam.yaw),0,-Math.sin(cam.yaw)],sp=(place.giant?3:0.9)*a.fast*dt;
+    camPan[0]+=(fwd[0]*a.f+right[0]*a.r)*sp;camPan[2]+=(fwd[2]*a.f+right[2]*a.r)*sp;camPan[1]+=a.u*sp*0.6;cam.yaw+=a.t*1.6*dt;moveSandbox(a,fwd,right,dt);}
   const shift=(innerWidth>900&&!$('card').hidden)?-0.45*(place.giant?3:1):0;   // keep the table clear of the instruction card
-  const tgt=[place.x+shift*Math.cos(cam.yaw),place.base+0.12,place.z-shift*Math.sin(cam.yaw)],cp=Math.cos(cam.pitch);
+  const tgt=[place.x+shift*Math.cos(cam.yaw)+camPan[0],place.base+0.12+camPan[1],place.z-shift*Math.sin(cam.yaw)+camPan[2]],cp=Math.cos(cam.pitch);
   const eye=[tgt[0]+cam.dist*cp*Math.sin(cam.yaw),tgt[1]+cam.dist*Math.sin(cam.pitch),tgt[2]+cam.dist*cp*Math.cos(cam.yaw)];
   const VP=M.mul(M.persp(50*Math.PI/180,canvas.width/canvas.height,0.02,80),M.look(eye,tgt,[0,1,0]));VPprev=VP;
   let tool=null;
@@ -864,16 +891,38 @@ canvas.addEventListener('pointermove',e=>{mouse=[e.clientX,e.clientY];if(orbit){
 const up=()=>{mouseDown=false;orbit=null;};canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
 canvas.addEventListener('pointerleave',()=>{if(!mouseDown)mouse=null;});
 canvas.addEventListener('wheel',e=>{e.preventDefault();cam.dist=Math.min(14,Math.max(0.4,cam.dist*Math.exp(e.deltaY*0.001)));},{passive:false});
-window.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;const k=e.key.toLowerCase();
-  if(k>='1'&&k<='9'){S.tool=TOOLS[+k-1][0];panelDirty=true;}
-  else if(k==='r')S.holdRain=true;else if(k==='d')S.holdDrain=true;
-  else if(k===' '){e.preventDefault();S.paused=!S.paused;panelDirty=true;}
-  else if(k==='n')loadPreset(cycle(PRESETS,S.preset,1));
-  else if(k==='g'){setGiant(!place.giant);cam.dist=place.giant?9:3.1;}
-  else if(k==='c')S.contours=!S.contours;
-  else if(k==='z')undo();
-  else if(k==='['||k===']'){S.brushR=Math.min(25,Math.max(2,S.brushR+(k===']'?1:-1)));panelDirty=true;}});
-window.addEventListener('keyup',e=>{const k=e.key.toLowerCase();if(k==='r')S.holdRain=false;if(k==='d')S.holdDrain=false;});
+/* ---------------- Keyboard ----------------
+   Works in the preview, in PC VR, and with a keyboard paired to the headset.
+   Movement keys are read every frame; everything else fires once per press. */
+const keys=new Set();let snapQueue=0,RIG=M.I(),camPan=[0,0,0];
+function keyAxes(){const h=c=>keys.has(c)?1:0;
+  return {f:h('KeyW')+h('ArrowUp')-h('KeyS')-h('ArrowDown'),r:h('KeyD')+h('ArrowRight')-h('KeyA')-h('ArrowLeft'),u:h('PageUp')-h('PageDown'),
+    bf:h('KeyI')-h('KeyK'),br:h('KeyL')-h('KeyJ'),bu:h('KeyO')-h('KeyU'),t:h('KeyQ')-h('KeyE'),fast:(h('ShiftLeft')||h('ShiftRight'))?2.5:1};}
+function moveSandbox(a,fwd,right,dt){if(!a.bf&&!a.br&&!a.bu)return;const v=0.5*(place.giant?4:1)*a.fast*dt;
+  place.x+=(fwd[0]*a.bf+right[0]*a.br)*v;place.z+=(fwd[2]*a.bf+right[2]*a.br)*v;
+  place.base=Math.min(2,Math.max(place.giant?-2:0.2,place.base+a.bu*0.3*a.fast*dt));}
+function resetView(){RIG=M.I();camPan=[0,0,0];cam.yaw=0.3;cam.pitch=0.7;cam.dist=place.giant?9:3.1;resetPlace();}
+const NAV_KEYS=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Space']);
+window.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey)return;const tg=e.target&&e.target.tagName;if(tg==='SELECT'||tg==='INPUT'||tg==='TEXTAREA')return;
+  const c=e.code;keys.add(c);if(NAV_KEYS.has(c))e.preventDefault();if(e.repeat&&!/Bracket|Minus|Equal|Comma|Period/.test(c))return;
+  if(/^Digit[1-9]$/.test(c)||/^Numpad[1-9]$/.test(c)){S.tool=TOOLS[+c.slice(-1)-1][0];}
+  else if(c==='KeyQ'||c==='KeyE'){if(xrSession)snapQueue+=c==='KeyQ'?1:-1;}
+  else if(c==='KeyR')S.holdRain=true;else if(c==='KeyF')S.holdDrain=true;
+  else if(c==='Space')S.paused=!S.paused;
+  else if(c==='KeyN')loadPreset(cycle(PRESETS,S.preset,1));
+  else if(c==='KeyG'){setGiant(!place.giant);RIG=M.I();camPan=[0,0,0];cam.dist=place.giant?9:3.1;}
+  else if(c==='KeyC')S.contours=!S.contours;
+  else if(c==='KeyM'){S.cmap=cycle(CMAP_ORDER,S.cmap,1);buildCmap();}
+  else if(c==='KeyZ')undo();
+  else if(c==='KeyH')resetView();
+  else if(c==='Minus'||c==='NumpadSubtract')S.exag=Math.max(1,S.exag-0.25);
+  else if(c==='Equal'||c==='NumpadAdd')S.exag=Math.min(4,S.exag+0.25);
+  else if(c==='Comma')place.yaw+=Math.PI/12;else if(c==='Period')place.yaw-=Math.PI/12;
+  else if(c==='BracketLeft'||c==='BracketRight')S.brushR=Math.min(25,Math.max(2,S.brushR+(c==='BracketRight'?1:-1)));
+  panelDirty=true;});
+window.addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='KeyR')S.holdRain=false;if(e.code==='KeyF')S.holdDrain=false;});
+window.addEventListener('blur',()=>{keys.clear();S.holdRain=S.holdDrain=false;});
 $('collapse').addEventListener('click',()=>{const d=$('details');d.hidden=!d.hidden;$('collapse').textContent=d.hidden?'Show instructions':'Hide instructions';$('collapse').setAttribute('aria-expanded',String(!d.hidden));});
 
 /* ---------------- Start ---------------- */

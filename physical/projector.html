@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sandbox Projector</title>
+<style>
+:root{color-scheme:dark;--fg:#e9e4d8;--muted:#98a1aa;--sand:#d8b46a;--line:#2c333b}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0;background:#000;overflow:hidden}
+#gl,#cal{position:fixed;inset:0;width:100%;height:100%;display:block}
+#cal{pointer-events:none}
+body.run{cursor:none}
+.note{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(560px,90vw);background:rgba(20,24,28,.94);border:1px solid var(--line);border-radius:12px;
+  padding:20px 24px;color:var(--fg);font:16px/1.45 "Segoe UI",system-ui,sans-serif;text-align:center}
+.note h1{margin:0 0 8px;font-size:20px;letter-spacing:.05em;text-transform:uppercase}
+.note h1 span{color:var(--sand)}
+.note p{margin:6px 0;color:var(--muted)}
+.note button{margin-top:10px;font:inherit;font-weight:700;background:#d8b46a;color:#1d1708;border:0;border-radius:8px;padding:10px 18px;cursor:pointer}
+.badge{position:fixed;left:12px;bottom:10px;color:#98a1aa;font:13px "Segoe UI",system-ui,sans-serif;background:rgba(0,0,0,.6);padding:4px 8px;border-radius:6px}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="cal" hidden></canvas>
+<div class="note" id="note">
+  <h1>Sandbox <span>projector</span></h1>
+  <p>Move this window onto the projector's screen, then click the button. The view fills the screen and the mouse pointer hides.</p>
+  <p id="noteStatus">Loading…</p>
+  <button id="fsBtn">Go full screen</button>
+</div>
+<div class="badge" id="badge" hidden></div>
+<script src="common.js"></script>
+<script>
+"use strict";
+/* ============================================================
+   Physical AR Sandbox — projector output.
+   Depth frames → FrameFilter (worker) → elevation grid on the GPU →
+   SARndbox water simulation → image warped by the projector calibration.
+   Designed by Prof. Xin (Shane) Miao, Missouri State University.
+   Based on SARndbox 2.8 by Oliver Kreylos. GPL-2.0-or-later.
+   ============================================================ */
+const $=id=>document.getElementById(id);
+function fail(msg){$('noteStatus').textContent=msg;throw new Error(msg);}
+const canvas=$('gl');
+const gl=canvas.getContext('webgl2',{antialias:true,alpha:false});
+if(!gl) fail('This page needs WebGL2. Use a current Edge or Chrome.');
+if(!gl.getExtension('EXT_color_buffer_float')) fail('This graphics driver cannot render to floating-point textures (EXT_color_buffer_float).');
+
+(async function main(){
+const CFG=await SBX.loadConfig();
+const DETAIL={standard:400,high:640,low:256};
+const LX=CFG.box?CFG.box.LX:100,LY=CFG.box?CFG.box.LY:75;
+const W=DETAIL[CFG.detail]||400,H=Math.max(8,Math.round(W*LY/LX)),BW=W-1,BH=H-1,CS=LX/W;
+const ZMIN=CFG.filter.elevMin-5,ZMAX=CFG.filter.elevMax+5;
+const CAM=CFG.camera;
+
+/* ---------------- GL helpers ---------------- */
+function tex(w,h,data,fmt){
+  fmt=fmt||'32f';
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  if(fmt==='32f') gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,w,h,0,gl.RGBA,gl.FLOAT,data||null);
+  else if(fmt==='16f') gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.HALF_FLOAT,null);
+  else gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,data||null);
+  const filt=(fmt==='32f')?gl.NEAREST:gl.LINEAR;
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,filt);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,filt);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  t.w=w;t.h=h;return t;
+}
+const fboCache=new Map();let fboId=0;
+function fbo(...texs){
+  const key=texs.map(t=>t._id||(t._id=++fboId)).join(',');
+  let f=fboCache.get(key);if(f) return f;
+  f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  texs.forEach((t,i)=>gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0+i,gl.TEXTURE_2D,t,0));
+  gl.drawBuffers(texs.map((t,i)=>gl.COLOR_ATTACHMENT0+i));
+  const st=gl.checkFramebufferStatus(gl.FRAMEBUFFER);if(st!==gl.FRAMEBUFFER_COMPLETE) fail('Framebuffer incomplete: '+st);
+  f.w=texs[0].w;f.h=texs[0].h;fboCache.set(key,f);return f;
+}
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){const log=gl.getShaderInfoLog(s);console.error(log,src.split('\n').map((l,i)=>(i+1)+': '+l).join('\n'));fail('Shader error: '+log);}return s;}
+function program(vs,fs){const p=gl.createProgram();gl.attachShader(p,shader(gl.VERTEX_SHADER,vs));gl.attachShader(p,shader(gl.FRAGMENT_SHADER,fs));gl.linkProgram(p);
+  if(!gl.getProgramParameter(p,gl.LINK_STATUS)) fail('Link error: '+gl.getProgramInfoLog(p));
+  const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);p.u={};
+  for(let i=0;i<n;i++){const info=gl.getActiveUniform(p,i);p.u[info.name.replace(/\[0\]$/,'')]={loc:gl.getUniformLocation(p,info.name),type:info.type};}
+  p.unit=0;return p;}
+function use(p,uniforms){
+  gl.useProgram(p);let unit=0;
+  for(const k in uniforms){const u=p.u[k];if(!u) continue;const v=uniforms[k];
+    switch(u.type){
+      case gl.SAMPLER_2D: gl.activeTexture(gl.TEXTURE0+unit);gl.bindTexture(gl.TEXTURE_2D,v);gl.uniform1i(u.loc,unit);unit++;break;
+      case gl.FLOAT: gl.uniform1f(u.loc,v);break;
+      case gl.FLOAT_VEC2: gl.uniform2fv(u.loc,v);break;
+      case gl.FLOAT_VEC3: gl.uniform3fv(u.loc,v);break;
+      case gl.FLOAT_VEC4: gl.uniform4fv(u.loc,v);break;
+      case gl.INT: case gl.BOOL: gl.uniform1i(u.loc,v|0);break;
+      case gl.INT_VEC2: gl.uniform2iv(u.loc,v);break;
+      case gl.FLOAT_MAT4: gl.uniformMatrix4fv(u.loc,false,v);break;
+    }}
+}
+const emptyVAO=gl.createVertexArray();
+function pass(p,target,uniforms){
+  const f=Array.isArray(target)?fbo(...target):fbo(target);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.viewport(0,0,f.w,f.h);
+  gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
+  use(p,uniforms);gl.bindVertexArray(emptyVAO);gl.drawArrays(gl.TRIANGLES,0,3);
+}
+function readTex(t,arr){gl.bindFramebuffer(gl.FRAMEBUFFER,fbo(t));gl.readPixels(0,0,t.w,t.h,gl.RGBA,gl.FLOAT,arr);return arr;}
+
+/* ============================================================
+   Shaders. The SIM_ block is a WebGL2 port of SARndbox 2.8's
+   Water2*.fs shaders (Kurganov–Petrova central-upwind scheme).
+   Rectangle textures became texelFetch; gl_FragData became
+   layout outputs; out-of-range reads are clamped with
+   mirrored momentum (reflective ghost cells).
+   ============================================================ */
+const QUAD_VS=`#version 300 es
+void main(){vec2 p=vec2(float((gl_VertexID<<1)&2),float(gl_VertexID&2));gl_Position=vec4(p*2.0-1.0,0.0,1.0);}`;
+const HEAD=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uBathy;uniform sampler2D uQ;uniform ivec2 uQSize;uniform ivec2 uBSize;
+float B(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uBathy,c,0).r;}
+float Bc(ivec2 c){return (B(c+ivec2(-1,-1))+B(c+ivec2(0,-1))+B(c+ivec2(-1,0))+B(c))*0.25;}
+vec3 Q(ivec2 c){ivec2 k=clamp(c,ivec2(0),uQSize-ivec2(1));vec3 q=texelFetch(uQ,k,0).rgb;if(k.x!=c.x)q.y=-q.y;if(k.y!=c.y)q.z=-q.z;return q;}
+`;
+const DERIV_FS=HEAD+`
+uniform vec2 uCell;uniform float uTheta;uniform float uG;uniform float uEps;
+layout(location=0) out vec4 oDeriv;layout(location=1) out vec4 oMax;
+vec3 calcSlope(vec3 q0,vec3 q1,vec3 q2,float cs,float b0,float b1){
+  vec3 d01=(q1-q0)*(uTheta/cs);vec3 d02=(q2-q0)/(2.0*cs);vec3 d12=(q2-q1)*(uTheta/cs);
+  vec3 dMin=min(min(d01,d02),d12);vec3 dMax=max(max(d01,d02),d12);
+  vec3 s;
+  s.x=dMin.x>0.0?dMin.x:(dMax.x<0.0?dMax.x:0.0);
+  s.y=dMin.y>0.0?dMin.y:(dMax.y<0.0?dMax.y:0.0);
+  s.z=dMin.z>0.0?dMin.z:(dMax.z<0.0?dMax.z:0.0);
+  if(q1.x-s.x*cs*0.5<b0) s.x=(q1.x-b0)/(cs*0.5);
+  if(q1.x+s.x*cs*0.5<b1) s.x=(b1-q1.x)/(cs*0.5);
+  return s;}
+vec2 calcUv(inout vec3 q,float h){float h4=h*h*h*h;vec2 uv=q.yz*(1.41421356237309*h/sqrt(h4+max(h4,uEps)));q.yz=uv*h;return uv;}
+float fluxX(vec3 qe,vec3 qw,float bew,out vec3 f){
+  float he=max(qe.x-bew,0.0),hw=max(qw.x-bew,0.0);
+  vec2 uve=calcUv(qe,he),uvw=calcUv(qw,hw);
+  vec3 fe=vec3(qe.y,uve.x*qe.y+0.5*uG*he*he,uve.y*qe.y);
+  vec3 fw=vec3(qw.y,uvw.x*qw.y+0.5*uG*hw*hw,uvw.y*qw.y);
+  float sghe=sqrt(uG*he),sghw=sqrt(uG*hw);
+  float aE=min(min(uve.x-sghe,uvw.x-sghw),0.0);
+  float aW=max(max(uve.x+sghe,uvw.x+sghw),0.0);
+  f=aW-aE!=0.0?((fe*aW-fw*aE)+(qw-qe)*(aW*aE))/(aW-aE):vec3(0.0);
+  return 0.5*uCell.x/max(max(-aE,aW),1e-6);}
+float fluxY(vec3 qn,vec3 qs,float bns,out vec3 f){
+  float hn=max(qn.x-bns,0.0),hs=max(qs.x-bns,0.0);
+  vec2 uvn=calcUv(qn,hn),uvs=calcUv(qs,hs);
+  vec3 fn=vec3(qn.z,uvn.x*qn.z,uvn.y*qn.z+0.5*uG*hn*hn);
+  vec3 fs=vec3(qs.z,uvs.x*qs.z,uvs.y*qs.z+0.5*uG*hs*hs);
+  float sghn=sqrt(uG*hn),sghs=sqrt(uG*hs);
+  float aN=min(min(uvn.y-sghn,uvs.y-sghs),0.0);
+  float aS=max(max(uvn.y+sghn,uvs.y+sghs),0.0);
+  f=aS-aN!=0.0?((fn*aS-fs*aN)+(qs-qn)*(aS*aN))/(aS-aN):vec3(0.0);
+  return 0.5*uCell.y/max(max(-aN,aS),1e-6);}
+void main(){
+  ivec2 c=ivec2(gl_FragCoord.xy);int x=c.x,y=c.y;
+  float b00=B(ivec2(x-1,y-1)),b10=B(ivec2(x,y-1)),b01=B(ivec2(x-1,y)),b11=B(c);
+  float b0=(B(ivec2(x-1,y-2))+B(ivec2(x,y-2)))*0.5;
+  float b1=(b00+b10)*0.5;
+  float b2=(B(ivec2(x-2,y-1))+B(ivec2(x-2,y)))*0.5;
+  float b3=(b00+b01)*0.5;
+  float b4=(b10+b11)*0.5;
+  float b5=(B(ivec2(x+1,y-1))+B(ivec2(x+1,y)))*0.5;
+  float b6=(b01+b11)*0.5;
+  float b7=(B(ivec2(x-1,y+1))+B(ivec2(x,y+1)))*0.5;
+  vec3 q1=Q(ivec2(x,y-1)),q3=Q(ivec2(x-1,y)),q4=Q(c),q5=Q(ivec2(x+1,y)),q7=Q(ivec2(x,y+1));
+  vec3 q1n=q1+calcSlope(Q(ivec2(x,y-2)),q1,q4,uCell.y,b0,b1)*(uCell.y*0.5);
+  vec3 q3e=q3+calcSlope(Q(ivec2(x-2,y)),q3,q4,uCell.x,b2,b3)*(uCell.x*0.5);
+  vec3 q4x=calcSlope(q3,q4,q5,uCell.x,b3,b4)*(uCell.x*0.5);
+  vec3 q4w=q4-q4x,q4e=q4+q4x;
+  vec3 q4y=calcSlope(q1,q4,q7,uCell.y,b1,b6)*(uCell.y*0.5);
+  vec3 q4s=q4-q4y,q4n=q4+q4y;
+  vec3 q5w=q5-calcSlope(q4,q5,Q(ivec2(x+2,y)),uCell.x,b4,b5)*(uCell.x*0.5);
+  vec3 q7s=q7-calcSlope(q4,q7,Q(ivec2(x,y+2)),uCell.y,b6,b7)*(uCell.y*0.5);
+  vec3 fXw,fXe,fYs,fYn;
+  float m=min(min(fluxX(q3e,q4w,b3,fXw),fluxX(q4e,q5w,b4,fXe)),min(fluxY(q1n,q4s,b1,fYs),fluxY(q4n,q7s,b6,fYn)));
+  oMax=vec4(m,0.0,0.0,0.0);
+  float h=max(q4.x-(b3+b4)*0.5,0.0);
+  vec3 src=vec3(0.0,-uG*h*(b4-b3)/uCell.x,-uG*h*(b6-b1)/uCell.y);
+  oDeriv=vec4(src-(fXe-fXw)/uCell.x-(fYn-fYs)/uCell.y,0.0);
+}`;
+const EULER_FS=HEAD+`
+uniform sampler2D uD;uniform float uDt;uniform float uAtt;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;vec3 n=q+texelFetch(uD,c,0).rgb*uDt;n.yz*=uAtt;o=vec4(n,0.0);}`;
+const RK_FS=HEAD+`
+uniform sampler2D uQs;uniform sampler2D uD;uniform float uDt;uniform float uAtt;uniform int uDry;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);
+  vec3 n=(texelFetch(uQ,c,0).rgb+texelFetch(uQs,c,0).rgb+texelFetch(uD,c,0).rgb*uDt)*0.5;n.yz*=uAtt;
+  float b=Bc(c);
+  if(uDry==1&&(c.x==0||c.y==0||c.x==uQSize.x-1||c.y==uQSize.y-1)) n=vec3(b,0.0,0.0);  // Water2BoundaryShader
+  if(n.x<=b){n.x=b;n.yz=vec2(0.0);}
+  o=vec4(n,0.0);}`;
+// Water2WaterUpdateShader + sources/sinks, plus Green–Ampt infiltration (extension). Writes quantity and soil state.
+const WATER_FS=HEAD+`
+uniform sampler2D uFeat;uniform float uDt;uniform float uGlobal;uniform float uEvap;uniform vec4 uBrush;uniform vec4 uRain[4];uniform float uCs;
+uniform float uKs;uniform float uPsi;
+layout(location=0) out vec4 o;layout(location=1) out vec4 oF;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;vec4 f=texelFetch(uFeat,c,0);float b=Bc(c);
+  vec2 p=(vec2(c)+0.5)*uCs;float amt=uGlobal-uEvap+f.r-f.g;
+  if(uBrush.z>0.0&&distance(p,uBrush.xy)<uBrush.z) amt+=uBrush.w;
+  for(int i=0;i<4;i++){vec4 r=uRain[i];if(r.z>0.0&&distance(p,r.xy)<r.z)amt+=r.w;}   // rain under hands (RainMaker)
+  float hOld=q.x-b;float hNew=max(hOld+amt*uDt,0.0);
+  if(uKs>0.0&&hNew>0.0){float cap=uKs*(1.0+uPsi/max(f.b,0.05))*uDt;float inf=min(cap,hNew);hNew-=inf;f.b+=inf;}
+  q.x=hNew+b;
+  q.yz=hNew<=0.0?vec2(0.0):(hNew<hOld?q.yz*(hNew/max(hOld,1e-6)):q.yz);
+  o=vec4(q,0.0);oF=f;}`;
+const BUPD_FS=HEAD+`
+uniform sampler2D uOld;out vec4 o;
+float Bo(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uOld,c,0).r;}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);
+  float bOld=(Bo(c+ivec2(-1,-1))+Bo(c+ivec2(0,-1))+Bo(c+ivec2(-1,0))+Bo(c))*0.25;
+  float bNew=Bc(c);vec3 q=texelFetch(uQ,c,0).rgb;
+  o=vec4(max(q.x-bOld,0.0)+bNew,q.yz,0.0);}`;
+const REDUCE_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform ivec2 uSrcSize;out vec4 o;
+void main(){ivec2 base=ivec2(gl_FragCoord.xy)*8;float m=1e30;
+  for(int j=0;j<8;j++)for(int i=0;i<8;i++){ivec2 p=base+ivec2(i,j);if(p.x<uSrcSize.x&&p.y<uSrcSize.y)m=min(m,texelFetch(uSrc,p,0).r);}
+  o=vec4(m);}`;
+const SCULPT_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform ivec2 uSize;uniform vec4 uBrush;uniform int uMode;uniform float uLevel;uniform vec2 uClamp;uniform float uCs;out vec4 o;
+float S(ivec2 c){c=clamp(c,ivec2(0),uSize-ivec2(1));return texelFetch(uSrc,c,0).r;}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);float b=S(c);vec2 p=(vec2(c)+1.0)*uCs;float d=distance(p,uBrush.xy);
+  if(d<uBrush.z){float w=0.5+0.5*cos(3.14159265*d/uBrush.z);float a=uBrush.w*w;
+    if(uMode==0) b+=a; else if(uMode==1) b-=a;
+    else if(uMode==2){float s=0.0;for(int j=-2;j<=2;j++)for(int i=-2;i<=2;i++)s+=S(c+ivec2(i,j));b=mix(b,s/25.0,clamp(a,0.0,1.0));}
+    else b=mix(b,uLevel,clamp(a,0.0,1.0));}
+  o=vec4(clamp(b,uClamp.x,uClamp.y),0.0,0.0,0.0);}`;
+// Angle-of-repose relaxation. Pairwise-symmetric, so sand volume is conserved.
+const SLUMP_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform ivec2 uSize;uniform float uT;out vec4 o;
+float S(ivec2 c){c=clamp(c,ivec2(0),uSize-ivec2(1));return texelFetch(uSrc,c,0).r;}
+float ex(float d){return sign(d)*max(abs(d)-uT,0.0);}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);float b=S(c);
+  float a=ex(S(c+ivec2(1,0))-b)+ex(S(c-ivec2(1,0))-b)+ex(S(c+ivec2(0,1))-b)+ex(S(c-ivec2(0,1))-b);
+  o=vec4(b+0.2*a,0.0,0.0,0.0);}`;
+const FEAT_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uSrc;uniform vec4 uBrush;uniform int uMode;uniform float uRate;uniform float uCs;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec4 f=texelFetch(uSrc,c,0);vec2 p=(vec2(c)+0.5)*uCs;
+  if(distance(p,uBrush.xy)<uBrush.z){if(uMode==0){f.r=uRate;f.g=0.0;}else if(uMode==1){f.g=uRate;f.r=0.0;}else if(uMode==2){f.r=0.0;f.g=0.0;}}
+  if(uMode==3) f.b=0.0;
+  o=f;}`;
+const COPY_FS=`#version 300 es
+precision highp float;precision highp sampler2D;uniform sampler2D uSrc;out vec4 o;
+void main(){o=texelFetch(uSrc,ivec2(gl_FragCoord.xy),0);}`;
+// Per-cell water visualisation: depth, speed, surface gradient (half-float so it can be filtered linearly)
+const WVIS_FS=HEAD+`
+uniform float uEps;uniform float uCs;out vec4 o;
+float D(ivec2 c){c=clamp(c,ivec2(0),uQSize-ivec2(1));return max(texelFetch(uQ,c,0).r-Bc(c),0.0);}
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;float h=max(q.x-Bc(c),0.0);
+  float h4=h*h*h*h;vec2 uv=q.yz*(1.41421356237309*h/sqrt(h4+max(h4,uEps)));
+  ivec2 l=clamp(c-ivec2(1,0),ivec2(0),uQSize-ivec2(1)),r=clamp(c+ivec2(1,0),ivec2(0),uQSize-ivec2(1));
+  ivec2 dn=clamp(c-ivec2(0,1),ivec2(0),uQSize-ivec2(1)),up=clamp(c+ivec2(0,1),ivec2(0),uQSize-ivec2(1));
+  float gx=(texelFetch(uQ,r,0).r-texelFetch(uQ,l,0).r)/(2.0*uCs);
+  float gy=(texelFetch(uQ,up,0).r-texelFetch(uQ,dn,0).r)/(2.0*uCs);
+  if(D(l)<0.01||D(r)<0.01) gx=0.0; if(D(dn)<0.01||D(up)<0.01) gy=0.0;
+  o=vec4(h,length(uv),gx,gy);}`;
+
+/* ---------------- Render shaders ---------------- */
+const TERRAIN_VS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uBathy;uniform ivec2 uBSize;uniform float uCs;uniform float uExag;uniform mat4 uMVP;
+out float vElev;out vec2 vXY;out vec3 vN;
+float B(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uBathy,c,0).r;}
+void main(){ivec2 c=ivec2(gl_VertexID%uBSize.x,gl_VertexID/uBSize.x);float b=B(c);vec2 xy=(vec2(c)+1.0)*uCs;
+  float dx=(B(c+ivec2(1,0))-B(c-ivec2(1,0)))/(2.0*uCs)*uExag;float dy=(B(c+ivec2(0,1))-B(c-ivec2(0,1)))/(2.0*uCs)*uExag;
+  vN=normalize(vec3(-dx,-dy,1.0));vElev=b;vXY=xy;gl_Position=uMVP*vec4(xy,b*uExag,1.0);}`;
+const TERRAIN_FS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+in float vElev;in vec2 vXY;in vec3 vN;out vec4 o;
+uniform sampler2D uWV;uniform sampler2D uFeat;uniform sampler2D uCmap;uniform sampler2D uDem;
+uniform ivec2 uQSize;uniform ivec2 uBSize;uniform float uCs;
+uniform vec2 uCmapRange;uniform float uSea;uniform int uSandMode;
+uniform int uContours;uniform float uCInt;uniform int uShade;uniform vec3 uLight;
+uniform int uWaterProj;uniform int uWColor;uniform float uWOp;uniform float uSpeedMax;
+uniform int uDemOn;uniform float uDemScale;uniform int uShowFeat;uniform int uShowWet;uniform vec4 uRing;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+vec3 ramp(float t){t=clamp(t,0.0,1.0);return t<0.33?mix(vec3(0.1,0.3,0.95),vec3(0.1,0.85,0.95),t/0.33):(t<0.66?mix(vec3(0.1,0.85,0.95),vec3(1.0,0.9,0.2),(t-0.33)/0.33):mix(vec3(1.0,0.9,0.2),vec3(0.95,0.2,0.1),(t-0.66)/0.34));}
+void main(){
+  float e=vElev-uSea;vec3 col;
+  if(uDemOn==1){
+    ivec2 bc=clamp(ivec2(floor(vXY/uCs-0.5)),ivec2(0),uBSize-ivec2(1));
+    float d=clamp((vElev-texelFetch(uDem,bc,0).r)*uDemScale,-1.0,1.0);
+    col=d<0.0?vec3(1.0,1.0+d,1.0+d):vec3(1.0-d,1.0-d,1.0);   // SARndbox DEM colouring: red = too low, blue = too high
+  } else if(uSandMode==1){
+    col=vec3(0.86,0.74,0.53)*(0.94+0.08*hash(floor(vXY*6.0)));
+  } else {
+    float t=(e-uCmapRange.x)/(uCmapRange.y-uCmapRange.x);col=texture(uCmap,vec2(clamp(t,0.0,1.0),0.5)).rgb;
+  }
+  ivec2 qc=clamp(ivec2(vXY/uCs),ivec2(0),uQSize-ivec2(1));vec4 ft=texelFetch(uFeat,qc,0);
+  if(uShowWet==1) col*=1.0-0.38*clamp(ft.b/1.5,0.0,1.0);
+  if(uShade==1){float d=max(dot(normalize(vN),uLight),0.0);col*=0.42+0.7*d;}
+  if(uContours==1){float f=e/uCInt;float w=fwidth(f);float dd=abs(fract(f+0.5)-0.5);
+    float major=abs(mod(floor(f+0.5),5.0))<0.5?1.0:0.0;
+    float line=1.0-smoothstep(w*(0.45+0.5*major),w*(1.25+0.6*major),dd);col=mix(col,vec3(0.0),line*0.92);}
+  vec4 wv=texture(uWV,(vXY/uCs)/vec2(uQSize));
+  if(uWaterProj==1&&wv.x>0.0){
+    vec3 wn=normalize(vec3(-wv.z,-wv.w,1.0));float s=pow(max(dot(wn,normalize(vec3(0.075,0.075,1.0))),0.0),100.0);
+    vec3 wc=uWColor==1?ramp(wv.y/uSpeedMax):mix(vec3(0.04,0.22,0.92),vec3(1.0),s*s*0.9);    // SurfaceAddWaterColor: blue with sparkle
+    col=mix(col,wc,clamp((wv.x-0.06)*uWOp,0.0,1.0));
+  }
+  if(uShowFeat==1){
+    if(ft.r>0.0){float k=0.5+0.5*sin(dot(vXY,vec2(3.0,3.0)));col=mix(col,vec3(0.3,0.95,1.0),0.55*k);}
+    if(ft.g>0.0){float k=0.5+0.5*sin(length(fract(vXY/2.0)-0.5)*18.0);col=mix(col,vec3(0.45,0.12,0.55),0.6*k);}
+  }
+  if(uRing.w>0.0){float d=abs(distance(vXY,uRing.xy)-uRing.z);float px=fwidth(distance(vXY,uRing.xy));
+    float a=1.0-smoothstep(px*0.8,px*2.0,d);col=mix(col,vec3(1.0),a*0.9);}
+  o=vec4(col,1.0);
+}`;
+const WATER_VS=HEAD+`
+uniform float uCs;uniform float uExag;uniform mat4 uMVP;uniform float uEps;
+out float vH;out vec3 vN;out float vSpeed;out vec3 vW;
+void main(){ivec2 c=ivec2(gl_VertexID%uQSize.x,gl_VertexID/uQSize.x);vec3 q=texelFetch(uQ,c,0).rgb;float b=Bc(c);float h=q.x-b;float z=q.x;
+  if(h<0.02){float s=0.0,n=0.0;
+    for(int k=0;k<4;k++){ivec2 d=k==0?ivec2(1,0):(k==1?ivec2(-1,0):(k==2?ivec2(0,1):ivec2(0,-1)));ivec2 nc=clamp(c+d,ivec2(0),uQSize-ivec2(1));
+      float qn=texelFetch(uQ,nc,0).r;if(qn-Bc(nc)>=0.02){s+=qn;n+=1.0;}}
+    z=n>0.0?s/n:b-2.0;}
+  vH=z-b;
+  float h4=h*h*h*h;vec2 uv=q.yz*(1.41421356237309*max(h,0.0)/sqrt(h4+max(h4,uEps)));vSpeed=length(uv);
+  ivec2 l=clamp(c-ivec2(1,0),ivec2(0),uQSize-ivec2(1)),r=clamp(c+ivec2(1,0),ivec2(0),uQSize-ivec2(1));
+  ivec2 dn=clamp(c-ivec2(0,1),ivec2(0),uQSize-ivec2(1)),up=clamp(c+ivec2(0,1),ivec2(0),uQSize-ivec2(1));
+  float gx=(texelFetch(uQ,r,0).r-texelFetch(uQ,l,0).r)/(2.0*uCs);float gy=(texelFetch(uQ,up,0).r-texelFetch(uQ,dn,0).r)/(2.0*uCs);
+  if(texelFetch(uQ,r,0).r-Bc(r)<0.02||texelFetch(uQ,l,0).r-Bc(l)<0.02) gx=0.0;
+  if(texelFetch(uQ,up,0).r-Bc(up)<0.02||texelFetch(uQ,dn,0).r-Bc(dn)<0.02) gy=0.0;
+  vN=normalize(vec3(-gx*uExag,-gy*uExag,1.0));
+  vec3 w=vec3((vec2(c)+0.5)*uCs,z*uExag+0.02);vW=w;gl_Position=uMVP*vec4(w,1.0);}`;
+const WATER_FS3=`#version 300 es
+precision highp float;precision highp int;
+in float vH;in vec3 vN;in float vSpeed;in vec3 vW;out vec4 o;
+uniform vec3 uEye;uniform vec3 uLight;uniform int uWColor;uniform float uSpeedMax;uniform float uWOp;
+vec3 ramp(float t){t=clamp(t,0.0,1.0);return t<0.33?mix(vec3(0.1,0.3,0.95),vec3(0.1,0.85,0.95),t/0.33):(t<0.66?mix(vec3(0.1,0.85,0.95),vec3(1.0,0.9,0.2),(t-0.33)/0.33):mix(vec3(1.0,0.9,0.2),vec3(0.95,0.2,0.1),(t-0.66)/0.34));}
+void main(){if(vH<0.03) discard;
+  vec3 N=normalize(vN);vec3 V=normalize(uEye-vW);float t=1.0-exp(-vH*0.09*uWOp);
+  vec3 base=uWColor==1?ramp(vSpeed/uSpeedMax)*0.9:mix(vec3(0.42,0.78,0.92),vec3(0.03,0.2,0.45),t);
+  float diff=max(dot(N,uLight),0.0);float spec=pow(max(dot(reflect(-uLight,N),V),0.0),70.0);
+  float fres=pow(1.0-max(dot(N,V),0.0),3.0);
+  vec3 col=base*(0.55+0.45*diff)+vec3(1.0)*spec*0.7+vec3(0.75,0.85,0.95)*fres*0.25;
+  float a=clamp(mix(0.45,0.92,t)+fres*0.2,0.0,0.95)*smoothstep(0.03,0.25,vH);
+  o=vec4(col*a,a);}`;
+const BOX_VS=`#version 300 es
+in vec3 aPos;in vec3 aN;uniform mat4 uMVP;uniform float uExag;out vec3 vN;out float vZ;
+void main(){vN=aN;vZ=aPos.z;gl_Position=uMVP*vec4(aPos.xy,aPos.z*uExag,1.0);}`;
+const BOX_FS=`#version 300 es
+precision highp float;in vec3 vN;in float vZ;uniform vec3 uLight;out vec4 o;
+void main(){float d=max(dot(normalize(vN),uLight),0.0);vec3 c=vec3(0.2,0.22,0.25)*(0.5+0.6*d);o=vec4(c,1.0);}`;
+
+const SKIRT_VS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+in vec3 aV;in vec2 aN;uniform sampler2D uBathy;uniform sampler2D uQ;uniform ivec2 uBSize;uniform ivec2 uQSize;uniform float uCs;uniform float uExag;uniform mat4 uMVP;uniform float uBase;
+out vec3 vN;out float vZ;out float vTop;
+float B(ivec2 c){c=clamp(c,ivec2(0),uBSize-ivec2(1));return texelFetch(uBathy,c,0).r;}
+void main(){ivec2 c=ivec2(aV.xy);float b=B(c);
+  ivec2 q=clamp(ivec2(aN.x>0.5?c.x:c.x+1,aN.y>0.5?c.y:c.y+1),ivec2(0),uQSize-ivec2(1));   // water cell just inside this edge
+  float w=texelFetch(uQ,q,0).r;float bq=(B(q+ivec2(-1,-1))+B(q+ivec2(0,-1))+B(q+ivec2(-1,0))+B(q))*0.25;
+  float top=(w-bq>0.05)?max(b,w):b;   // show standing water against the box side, like an aquarium wall
+  float z=aV.z>0.5?top:uBase;vZ=z;vTop=b;vN=vec3(aN,0.0);
+  vec2 xy=(vec2(c)+1.0)*uCs;gl_Position=uMVP*vec4(xy,z*uExag,1.0);}`;
+const SKIRT_FS=`#version 300 es
+precision highp float;in vec3 vN;in float vZ;in float vTop;uniform vec3 uLight;uniform float uBase;out vec4 o;
+void main(){float d=max(dot(normalize(vN),uLight),0.0);
+  if(vZ>vTop+0.02){o=vec4(vec3(0.09,0.3,0.6)*(0.7+0.45*d),1.0);return;}
+  float band=0.5+0.5*sin(vZ*2.3+sin(vZ*0.7)*2.0);
+  vec3 c=mix(vec3(0.62,0.5,0.34),vec3(0.52,0.41,0.27),band)*mix(0.8,1.0,smoothstep(uBase,vTop,vZ));
+  if(vZ<uBase+0.7) c=vec3(0.16,0.17,0.19);
+  o=vec4(c*(0.5+0.55*d),1.0);}`;
+
+
+const CMAPS={
+  sarndbox:{range:[-40,25],stops:[[-40,0,0,80],[-30,0,30,100],[-20,0,50,102],[-12.5,19,108,160],[-0.75,24,140,205],[-0.25,135,206,250],[-0.05,176,226,255],[0,0,97,71],[0.25,16,122,47],[2.5,232,215,125],[6,161,67,0],[9,130,30,30],[14,161,161,161],[20,206,206,206],[25,255,255,255]]},
+  hypso:{range:[-20,20],stops:[[-20,38,70,120],[-6,90,150,190],[-0.01,170,215,230],[0,96,148,92],[4,170,190,110],[8,222,206,140],[12,190,145,90],[16,150,110,90],[20,245,242,236]]},
+  gray:{range:[-20,20],stops:[[-20,10,10,10],[20,250,250,250]]},
+  sand:{range:[-20,20],stops:[[-20,219,188,135],[20,219,188,135]]}
+};
+const cmapTex=tex(512,1,null,'8');
+function sampleMap(m,t){const s=m.stops;const e=m.range[0]+(m.range[1]-m.range[0])*t;
+  if(e<=s[0][0])return s[0].slice(1);for(let i=1;i<s.length;i++){if(e<=s[i][0]){const a=s[i-1],b=s[i],f=(e-a[0])/(b[0]-a[0]);return [a[1]+(b[1]-a[1])*f,a[2]+(b[2]-a[2])*f,a[3]+(b[3]-a[3])*f];}}return s[s.length-1].slice(1);}
+function buildCmap(){const m=CMAPS[S.cmap]||CMAPS.sarndbox,d=new Uint8Array(512*4);
+  for(let i=0;i<512;i++){const c=sampleMap(m,i/511);d[i*4]=c[0];d[i*4+1]=c[1];d[i*4+2]=c[2];d[i*4+3]=255;}
+  gl.bindTexture(gl.TEXTURE_2D,cmapTex);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,512,1,gl.RGBA,gl.UNSIGNED_BYTE,d);}
+
+/* ---------------- Depth image → elevation grid (as SARndbox's DepthImageRenderer) ---------------- */
+const SURF_VS=`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;
+uniform sampler2D uDepth;uniform ivec2 uDSize;uniform vec4 uIntr;uniform mat4 uBox;uniform vec2 uGrid;uniform float uCs;uniform vec2 uLXY;
+out float vElev;out float vValid;
+float Z(ivec2 c){return texelFetch(uDepth,clamp(c,ivec2(0),uDSize-ivec2(1)),0).r;}
+void main(){ivec2 c=ivec2(gl_VertexID%uDSize.x,gl_VertexID/uDSize.x);float z=Z(c);vValid=z>0.0?1.0:0.0;
+  // drop triangles that bridge a depth jump (box walls, the edge of a hand) so they don't smear into the sand
+  float lim=1.5+0.02*z;
+  for(int k=0;k<4;k++){ivec2 o=k==0?ivec2(1,0):(k==1?ivec2(-1,0):(k==2?ivec2(0,1):ivec2(0,-1)));float zn=Z(c+o);if(zn<=0.0||abs(zn-z)>lim)vValid=0.0;}
+  vec3 P=vec3((float(c.x)+0.5-uIntr.z)/uIntr.x*z,(float(c.y)+0.5-uIntr.w)/uIntr.y*z,z);
+  vec3 B=(uBox*vec4(P,1.0)).xyz;vElev=B.z;
+  if(B.x<0.6||B.y<0.6||B.x>uLXY.x-0.6||B.y>uLXY.y-0.6)vValid=0.0;   // the inner faces of the box walls
+  vec2 ndc=vec2((B.x/uCs-0.5)/uGrid.x,(B.y/uCs-0.5)/uGrid.y)*2.0-1.0;
+  gl_Position=vec4(ndc,clamp(-B.z/200.0,-0.99,0.99),1.0);}`;
+const SURF_FS=`#version 300 es
+precision highp float;in float vElev;in float vValid;out vec4 o;
+void main(){if(vValid<0.999)discard;o=vec4(vElev,0.0,0.0,1.0);}`;
+const MERGE_FS=`#version 300 es
+precision highp float;precision highp sampler2D;uniform sampler2D uNew;uniform sampler2D uOld;uniform vec2 uZr;out vec4 o;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);float n=texelFetch(uNew,c,0).r;float b=texelFetch(uOld,c,0).r;
+  o=vec4(n>-1000.0?clamp(n,uZr.x,uZr.y):b,0.0,0.0,0.0);}`;
+
+const P={
+  deriv:program(QUAD_VS,DERIV_FS),euler:program(QUAD_VS,EULER_FS),rk:program(QUAD_VS,RK_FS),water:program(QUAD_VS,WATER_FS),
+  bupd:program(QUAD_VS,BUPD_FS),reduce:program(QUAD_VS,REDUCE_FS),copy:program(QUAD_VS,COPY_FS),wvis:program(QUAD_VS,WVIS_FS),
+  terrain:program(TERRAIN_VS,TERRAIN_FS),surf:program(SURF_VS,SURF_FS),merge:program(QUAD_VS,MERGE_FS)
+};
+
+/* ---------------- Simulation state ---------------- */
+const bathy=[tex(BW,BH),tex(BW,BH)],bOld=tex(BW,BH);let bi=0;
+const Qt=[tex(W,H),tex(W,H),tex(W,H)];let qi=0;const qStar=tex(W,H);
+const deriv=tex(W,H),maxT=tex(W,H);
+const red1=tex(Math.ceil(W/8),Math.ceil(H/8)),red2=tex(Math.ceil(W/64),Math.ceil(H/64)),red3=tex(1,1);
+const feat=[tex(W,H),tex(W,H)];let fi=0;
+const wvis=tex(W,H,null,'16f');
+const demTex=tex(1,1);
+const SIM={uQSize:[W,H],uBSize:[BW,BH],uCell:[CS,CS],uTheta:1.3,uG:9.81,uEps:0.01*Math.max(CS,1)};
+const one=new Float32Array(4);
+// elevation target with its own depth buffer (highest surface wins)
+const elevTex=tex(BW,BH);const elevFBO=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,elevFBO);
+gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,elevTex,0);
+{const rb=gl.createRenderbuffer();gl.bindRenderbuffer(gl.RENDERBUFFER,rb);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,BW,BH);gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,rb);}
+const depthTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,depthTex);
+gl.texImage2D(gl.TEXTURE_2D,0,gl.R32F,CAM.w,CAM.h,0,gl.RED,gl.FLOAT,null);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);
+
+const S={cmap:'sarndbox',contours:true,cint:0.75,shade:true,sea:0,wcolor:0,wop:2,speed:1,atten:1/128,evap:0,dry:1,rainRate:0.25,
+  paused:false,holdRain:false,holdDrain:false,handRain:true,showWater:true};
+let simTime=0,lastSteps=0;
+
+/* ---------------- Box frame ---------------- */
+const calibrated=!!(CFG.plane&&CFG.corners&&CFG.box);
+const BOX=calibrated?SBX.boxFrame(CFG.plane,CFG.corners):null;
+
+/* ---------------- Initial state: flat sand, no water ---------------- */
+function initState(){
+  const z=new Float32Array(BW*BH*4);upload(bathy[0],z);upload(bathy[1],z);
+  const q=new Float32Array(W*H*4);upload(Qt[qi],q);
+  upload(feat[0],new Float32Array(W*H*4));upload(feat[1],new Float32Array(W*H*4));
+}
+function upload(t,data){gl.bindTexture(gl.TEXTURE_2D,t);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,t.w,t.h,gl.RGBA,gl.FLOAT,data);}
+function dryAll(){   // water surface = sand surface everywhere
+  const q=new Float32Array(W*H*4),b=new Float32Array(BW*BH*4);readTex(bathy[bi],b);
+  const B=(i,j)=>b[(Math.min(BH-1,Math.max(0,j))*BW+Math.min(BW-1,Math.max(0,i)))*4];
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const k=(y*W+x)*4;q[k]=(B(x-1,y-1)+B(x,y-1)+B(x-1,y)+B(x,y))*0.25;q[k+1]=q[k+2]=0;}
+  upload(Qt[qi],q);}
+
+/* ---------------- FrameFilter + RainMaker worker ---------------- */
+function filterWorker(){
+  let C,N,ring,cnt,sum,sumsq,valid,K,slot=0,frames=0;
+  onmessage=e=>{const m=e.data;
+    if(m.type==='init'){C=m.cfg;const w=C.camera.w,h=C.camera.h;N=w*h;ring=new Uint16Array(N*C.filter.slots);cnt=new Uint16Array(N);sum=new Float64Array(N);sumsq=new Float64Array(N);valid=new Float32Array(N);
+      K=new Float32Array(N);const n=C.plane.n;for(let y=0;y<h;y++)for(let x=0;x<w;x++){K[y*w+x]=(n[0]*(x+0.5-C.camera.cx)/C.camera.fx+n[1]*(y+0.5-C.camera.cy)/C.camera.fy+n[2])*0.1;}slot=0;return;}
+    if(m.type==='filter'){Object.assign(C.filter,m.filter);Object.assign(C.rain,m.rain);return;}
+    if(m.type!=='frame'||!C)return;
+    const t0=performance.now(),D=m.depth,F=C.filter,d=C.plane.d,lo=F.elevMin,hi=F.elevMax,slots=F.slots,minS=F.minSamples,mv=F.maxVariance,hy=F.hysteresis;
+    const base=slot*N;let nValid=0;
+    for(let i=0;i<N;i++){
+      const v=D[i];
+      if(v){const e=v*K[i]+d;
+        if(e>=lo&&e<=hi){const old=ring[base+i];ring[base+i]=v;cnt[i]++;sum[i]+=v;sumsq[i]+=v*v;if(old){cnt[i]--;sum[i]-=old;sumsq[i]-=old*old;}}}
+      const c=cnt[i];
+      if(c>=minS&&sumsq[i]*c<=mv*c*c+sum[i]*sum[i]){const f=sum[i]/c;if(Math.abs(f-valid[i])>=hy)valid[i]=f;}
+      if(valid[i])nValid++;
+    }
+    slot=(slot+1)%slots;frames++;
+    // spatial low-pass (two passes of a 1-2-1 kernel), skipping pixels with no reading
+    const w=C.camera.w,h=C.camera.h,out=new Float32Array(valid);
+    if(F.spatial){const tmp=new Float32Array(N);
+      for(let pass=0;pass<2;pass++){
+        for(let y=0;y<h;y++){const r=y*w;for(let x=0;x<w;x++){const i=r+x,c=out[i];if(!c){tmp[i]=0;continue;}let s=2*c,n=2;
+          if(x>0&&out[i-1]){s+=out[i-1];n++;}if(x<w-1&&out[i+1]){s+=out[i+1];n++;}tmp[i]=s/n;}}
+        for(let y=0;y<h;y++){const r=y*w;for(let x=0;x<w;x++){const i=r+x,c=tmp[i];if(!c){out[i]=0;continue;}let s=2*c,n=2;
+          if(y>0&&tmp[i-w]){s+=tmp[i-w];n++;}if(y<h-1&&tmp[i+w]){s+=tmp[i+w];n++;}out[i]=s/n;}}}}
+    for(let i=0;i<N;i++)out[i]*=0.1;   // mm → cm
+    // RainMaker: objects held above the sand become rain clouds
+    const rain=[];
+    if(C.rain.enabled&&C.box){const bw=w>>2,bh=h>>2,mask=new Uint8Array(bw*bh),rlo=hi+C.rain.above,rhi=rlo+C.rain.height;
+      for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const i=(y*4+2)*w+x*4+2,v=D[i];if(v){const e=v*K[i]+d;if(e>=rlo&&e<=rhi)mask[y*bw+x]=1;}}
+      const lab=new Int32Array(bw*bh),blobs=[],stack=[];
+      for(let s0=0;s0<bw*bh;s0++){if(!mask[s0]||lab[s0])continue;const id=blobs.length+1;let area=0,sx=0,sy=0,sz=0;stack.push(s0);lab[s0]=id;
+        while(stack.length){const s=stack.pop(),x=s%bw,y=(s/bw)|0,i=(y*4+2)*w+x*4+2,z=D[i]*0.1;area+=(4*z/C.camera.fx)*(4*z/C.camera.fy);
+          sx+=(x*4+2.5-C.camera.cx)/C.camera.fx*z;sy+=(y*4+2.5-C.camera.cy)/C.camera.fy*z;sz+=z;
+          const nb=[x>0?s-1:-1,x<bw-1?s+1:-1,y>0?s-bw:-1,y<bh-1?s+bw:-1];for(const t of nb)if(t>=0&&mask[t]&&!lab[t]){lab[t]=id;stack.push(t);}}
+        let cells=0;for(let k=0;k<bw*bh;k++)if(lab[k]===id)cells++;
+        if(cells>=C.rain.minArea)blobs.push({area,P:[sx/cells,sy/cells,sz/cells]});else blobs.push(null);}
+      const M=C.box.M;for(const b of blobs.filter(Boolean).sort((a,b)=>b.area-a.area).slice(0,4)){const p=b.P;
+        rain.push([M[0]*p[0]+M[4]*p[1]+M[8]*p[2]+M[12],M[1]*p[0]+M[5]*p[1]+M[9]*p[2]+M[13],Math.max(3,Math.sqrt(b.area/Math.PI))]);}}
+    postMessage({type:'filtered',depth:out,rain,valid:nValid/N,ms:performance.now()-t0},[out.buffer]);
+  };
+}
+let worker=null,workerBusy=false,rainDisks=[],depthFrames=0,depthFps=0,validFrac=0,filterMs=0,newDepth=null;
+if(calibrated){
+  worker=new Worker(URL.createObjectURL(new Blob(['('+filterWorker.toString()+')()'],{type:'text/javascript'})));
+  worker.postMessage({type:'init',cfg:Object.assign({},CFG,{box:{M:Array.from(BOX.M)}})});
+  worker.onmessage=e=>{const m=e.data;if(m.type!=='filtered')return;workerBusy=false;newDepth=m.depth;rainDisks=m.rain;validFrac=m.valid;filterMs=m.ms;depthFrames++;};
+}
+let lastFrameN=-1,depthStatus='connecting';
+SBX.openDepth((depth,w,h,n)=>{if(!worker||workerBusy||w!==CAM.w||h!==CAM.h)return;workerBusy=true;const copy=new Uint16Array(depth);worker.postMessage({type:'frame',depth:copy},[copy.buffer]);},
+  st=>{depthStatus=st;});
+
+function updateSurface(){
+  if(!newDepth)return;
+  gl.bindTexture(gl.TEXTURE_2D,depthTex);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,CAM.w,CAM.h,gl.RED,gl.FLOAT,newDepth);newDepth=null;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,elevFBO);gl.viewport(0,0,BW,BH);gl.clearColor(-1e4,0,0,0);gl.clearDepth(1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LESS);gl.disable(gl.BLEND);
+  use(P.surf,{uDepth:depthTex,uDSize:[CAM.w,CAM.h],uIntr:[CAM.fx,CAM.fy,CAM.cx,CAM.cy],uBox:BOX.M,uGrid:[BW,BH],uCs:CS,uLXY:[LX,LY]});
+  gl.bindVertexArray(depthMesh.vao);gl.drawElements(gl.TRIANGLES,depthMesh.n,gl.UNSIGNED_INT,0);gl.bindVertexArray(null);gl.disable(gl.DEPTH_TEST);
+  pass(P.copy,bOld,{uSrc:bathy[bi]});
+  pass(P.merge,bathy[1-bi],{uNew:elevTex,uOld:bathy[bi],uZr:[ZMIN,ZMAX]});bi=1-bi;
+  pass(P.bupd,Qt[(qi+1)%3],{uBathy:bathy[bi],uOld:bOld,uQ:Qt[qi],...SIM});qi=(qi+1)%3;   // keep water depths over the new sand
+}
+
+/* ---------------- Water (WaterTable2::runSimulationStep, non-blocking step size) ---------------- */
+function makeReader(w,h){const arr=new Float32Array(w*h*4),buf=gl.createBuffer();gl.bindBuffer(gl.PIXEL_PACK_BUFFER,buf);gl.bufferData(gl.PIXEL_PACK_BUFFER,w*h*16,gl.STREAM_READ);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);
+  return {arr,buf,fence:null,
+    request(t){if(this.fence)return false;gl.bindFramebuffer(gl.FRAMEBUFFER,fbo(t));gl.bindBuffer(gl.PIXEL_PACK_BUFFER,this.buf);gl.readPixels(0,0,t.w,t.h,gl.RGBA,gl.FLOAT,0);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);this.fence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();return true;},
+    poll(){if(!this.fence)return false;const st=gl.clientWaitSync(this.fence,gl.SYNC_FLUSH_COMMANDS_BIT,0);if(st===gl.TIMEOUT_EXPIRED)return false;
+      gl.deleteSync(this.fence);this.fence=null;gl.bindBuffer(gl.PIXEL_PACK_BUFFER,this.buf);gl.getBufferSubData(gl.PIXEL_PACK_BUFFER,0,this.arr);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);return true;}};}
+const maxReader=makeReader(1,1),qReader=makeReader(W,H),bReader=makeReader(BW,BH);let asyncMax=0.002,waterL=0,statTimer=0;
+function reduceMax(){pass(P.reduce,red1,{uSrc:maxT,uSrcSize:[W,H]});pass(P.reduce,red2,{uSrc:red1,uSrcSize:[red1.w,red1.h]});pass(P.reduce,red3,{uSrc:red2,uSrcSize:[red2.w,red2.h]});}
+const rainU=new Float32Array(16);
+function simStep(dt,global,measure){
+  const q0=Qt[qi],q1=Qt[(qi+1)%3],q2=Qt[(qi+2)%3];
+  pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:q0,...SIM});
+  if(measure){reduceMax();maxReader.request(red3);}
+  const att=Math.pow(1-S.atten,dt);
+  pass(P.euler,qStar,{uBathy:bathy[bi],uQ:q0,uD:deriv,uDt:dt,uAtt:att,...SIM});
+  pass(P.deriv,[deriv,maxT],{uBathy:bathy[bi],uQ:qStar,...SIM});
+  pass(P.rk,q1,{uBathy:bathy[bi],uQ:q0,uQs:qStar,uD:deriv,uDt:dt,uAtt:att,uDry:S.dry,...SIM});
+  pass(P.water,[q2,feat[1-fi]],{uBathy:bathy[bi],uQ:q1,uFeat:feat[fi],uDt:dt,uGlobal:global,uEvap:S.evap,uBrush:[0,0,0,0],uRain:rainU,uCs:CS,uKs:0,uPsi:3,...SIM});
+  qi=(qi+2)%3;fi=1-fi;
+}
+
+/* ---------------- Geometry ---------------- */
+function gridIndices(nx,ny){const idx=new Uint32Array((nx-1)*(ny-1)*6);let k=0;
+  for(let j=0;j<ny-1;j++)for(let i=0;i<nx-1;i++){const a=j*nx+i,b=a+1,c=a+nx,d=c+1;idx[k++]=a;idx[k++]=b;idx[k++]=d;idx[k++]=a;idx[k++]=d;idx[k++]=c;}return idx;}
+function makeIBO(arr){const vao=gl.createVertexArray();gl.bindVertexArray(vao);const b=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,b);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,arr,gl.STATIC_DRAW);gl.bindVertexArray(null);return {vao,n:arr.length};}
+const terrainMesh=makeIBO(gridIndices(BW,BH));
+const depthMesh=makeIBO(gridIndices(CAM.w,CAM.h));
+
+/* ---------------- Calibration crosshair ---------------- */
+const cal=$('cal'),cx2=cal.getContext('2d');let calTarget=null;
+function drawCal(){cal.width=innerWidth;cal.height=innerHeight;cx2.fillStyle='#000';cx2.fillRect(0,0,cal.width,cal.height);if(!calTarget)return;
+  const x=calTarget.u*cal.width,y=calTarget.v*cal.height;cx2.strokeStyle='#fff';cx2.lineWidth=2;
+  cx2.beginPath();cx2.moveTo(0,y+0.5);cx2.lineTo(cal.width,y+0.5);cx2.moveTo(x+0.5,0);cx2.lineTo(x+0.5,cal.height);cx2.stroke();
+  cx2.lineWidth=3;cx2.strokeStyle='#4fe08a';cx2.beginPath();cx2.arc(x,y,36,0,Math.PI*2);cx2.stroke();
+  bc.postMessage({type:'targetPx',x,y,W:innerWidth,H:innerHeight,i:calTarget.i});}
+
+/* ---------------- Messages from the control page ---------------- */
+const bc=new BroadcastChannel(SBX.CH_CONTROL);
+bc.onmessage=e=>{const m=e.data;if(!m)return;
+  if(m.type==='settings'){const cm=S.cmap;Object.assign(S,m.S);if(S.cmap!==cm)buildCmap();
+    if(worker&&m.filter)worker.postMessage({type:'filter',filter:m.filter,rain:m.rain});}
+  else if(m.type==='cmd'){if(m.name==='dry')dryAll();else if(m.name==='reload')location.reload();}
+  else if(m.type==='calib'){if(m.on){calTarget=m.target;cal.hidden=false;drawCal();}else{calTarget=null;cal.hidden=true;}}
+  else if(m.type==='ping')hello();};
+function hello(){bc.postMessage({type:'hello',W:innerWidth,H:innerHeight,calibrated,projector:!!CFG.projector,grid:[W,H]});}
+addEventListener('resize',()=>{hello();if(!cal.hidden)drawCal();});
+
+/* ---------------- Main loop ---------------- */
+let lastT=performance.now(),fpsSm=60,depthTimer=0;
+function resize(){const dpr=Math.min(devicePixelRatio||1,2);const w=Math.round(innerWidth*dpr),h=Math.round(innerHeight*dpr);if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}}
+function viewMatrix(){
+  if(CFG.projector&&BOX){const pr=CFG.projector;return SBX.M4.mul(SBX.projectorClip(pr.P,pr.W,pr.H),BOX.Minv);}
+  const asp=canvas.width/canvas.height;let hh=LY/2*1.02,hw=hh*asp;if(asp<LX/LY){hw=LX/2*1.02;hh=hw/asp;}   // uncalibrated: plain top-down map
+  return SBX.M4.ortho(LX/2-hw,LX/2+hw,LY/2-hh,LY/2+hh,-100,100);}
+function frame(now){
+  requestAnimationFrame(frame);
+  const raw=(now-lastT)/1000,dt=Math.min(raw,0.05);lastT=now;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;resize();
+  if(calibrated)updateSurface();
+  rainU.fill(0);if(S.handRain)rainDisks.slice(0,4).forEach((r,i)=>{rainU.set([r[0],r[1],r[2],S.rainRate*4],i*4);});
+  if(maxReader.poll()){const m=maxReader.arr[0];if(isFinite(m)&&m>0)asyncMax=m;}
+  if(!S.paused){const total=dt*S.speed,safe=Math.min(asyncMax*0.6,0.05*CS);const n=Math.max(1,Math.min(30,Math.ceil(total/safe)));const h=Math.min(total/n,safe);
+    const global=(S.holdRain?S.rainRate*2:0)-(S.holdDrain?S.rainRate*2:0);
+    for(let k=0;k<n;k++){simStep(h,global,k===0);simTime+=h;}lastSteps=n;}
+  pass(P.wvis,wvis,{uBathy:bathy[bi],uQ:Qt[qi],uCs:CS,...SIM});
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,canvas.width,canvas.height);gl.clearColor(0,0,0,1);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
+  const cm=CMAPS[S.cmap]||CMAPS.sarndbox;
+  use(P.terrain,{uBathy:bathy[bi],uBSize:[BW,BH],uQSize:[W,H],uCs:CS,uExag:1,uMVP:viewMatrix(),uWV:wvis,uFeat:feat[fi],uCmap:cmapTex,uDem:demTex,
+    uCmapRange:cm.range,uSea:S.sea,uSandMode:S.cmap==='sand'?1:0,uContours:S.contours,uCInt:S.cint,uShade:S.shade,uLight:[-0.38,-0.46,0.8],
+    uWaterProj:S.showWater?1:0,uWColor:S.wcolor,uWOp:S.wop,uSpeedMax:15,uDemOn:0,uDemScale:0.15,uShowFeat:0,uShowWet:0,uRing:[0,0,0,0]});
+  gl.bindVertexArray(terrainMesh.vao);gl.drawElements(gl.TRIANGLES,terrainMesh.n,gl.UNSIGNED_INT,0);gl.bindVertexArray(null);
+  // stats for the control page
+  if(qReader.poll()&&bReader.arr){const q=qReader.arr,b=bReader.arr;let v=0;
+    const B=(i,j)=>b[(Math.min(BH-1,Math.max(0,j))*BW+Math.min(BW-1,Math.max(0,i)))*4];
+    for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const d=q[(y*W+x)*4]-(B(x-1,y-1)+B(x,y-1)+B(x-1,y)+B(x,y))*0.25;if(d>0)v+=d;}waterL=v*CS*CS/1000;}
+  bReader.poll();
+  statTimer-=raw;depthTimer+=raw;
+  if(statTimer<=0){statTimer=0.5;qReader.request(Qt[qi]);bReader.request(bathy[bi]);
+    if(depthTimer>=1){depthFps=depthFrames/depthTimer;depthFrames=0;depthTimer=0;}
+    bc.postMessage({type:'stats',fps:fpsSm,steps:lastSteps,water:waterL,depthFps,valid:validFrac,filterMs,rain:rainDisks.length,depth:depthStatus,calibrated,projector:!!CFG.projector,grid:[W,H],box:[LX,LY]});
+    const badge=$('badge');if(!CFG.projector){badge.hidden=false;badge.textContent=calibrated?'Projector not calibrated yet: showing a top-down map.':'Box not set up yet: open the control page and run the setup.';}else badge.hidden=true;}
+}
+
+/* ---------------- Start ---------------- */
+initState();buildCmap();
+$('noteStatus').textContent=!calibrated?'The box has not been set up yet. Use the control page to set it up.':(CFG.projector?'Calibrated and ready.':'The projector is not calibrated yet.');
+$('fsBtn').addEventListener('click',async()=>{try{await document.documentElement.requestFullscreen({navigationUI:'hide'});}catch(e){}$('note').hidden=true;document.body.classList.add('run');});
+addEventListener('dblclick',()=>{if(!document.fullscreenElement)document.documentElement.requestFullscreen().catch(()=>{});});
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement)document.body.classList.remove('run');});
+hello();requestAnimationFrame(t=>{lastT=t;requestAnimationFrame(frame);});
+window.__proj={debugCells(){const b=new Float32Array(BW*BH*4);readTex(bathy[bi],b);const hi=[];for(let j=0;j<BH;j++)for(let i=0;i<BW;i++){const v=b[(j*BW+i)*4];if(v>3)hi.push([i,j,+v.toFixed(1)]);}
+    const xs=hi.map(h=>h[0]),ys=hi.map(h=>h[1]);return {n:hi.length,BW,BH,xr:[Math.min(...xs),Math.max(...xs)],yr:[Math.min(...ys),Math.max(...ys)],sample:hi.filter((h,k)=>k%Math.max(1,(hi.length/12|0))===0)};},debug(){const q=new Float32Array(W*H*4),b=new Float32Array(BW*BH*4);readTex(Qt[qi],q);readTex(bathy[bi],b);let bmin=1e9,bmax=-1e9,qmin=1e9,qmax=-1e9,v=0;
+    for(let k=0;k<BW*BH;k++){bmin=Math.min(bmin,b[k*4]);bmax=Math.max(bmax,b[k*4]);}
+    for(let y=1;y<H-1;y++)for(let x=1;x<W-1;x++){const k=(y*W+x)*4;qmin=Math.min(qmin,q[k]);qmax=Math.max(qmax,q[k]);const B=(i,j)=>b[(Math.min(BH-1,Math.max(0,j))*BW+Math.min(BW-1,Math.max(0,i)))*4];const d=q[k]-(B(x-1,y-1)+B(x,y-1)+B(x-1,y)+B(x,y))*0.25;if(d>0)v+=d;}
+    return {bmin,bmax,qmin,qmax,L:v*CS*CS/1000,asyncMax,simTime};},S,get rain(){return rainDisks;},get simTime(){return simTime;},get steps(){return lastSteps;},get water(){return waterL;},get depthFps(){return depthFps;},get calibrated(){return calibrated;},BOX,CFG};
+})();
+</script>
+</body>
+</html>

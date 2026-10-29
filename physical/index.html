@@ -1,0 +1,457 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Physical Sandbox Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: control desk for a real sandbox. Camera view on the left, the four setup steps and live controls on the right. */
+:root{--bg:#121518;--desk:#191d21;--desk-2:#20252b;--line:#2c333b;--fg:#e9e4d8;--muted:#98a1aa;--sand:#d8b46a;--sand-dim:#8c7442;--water:#58a9e6;--warn:#e2785f;--ok:#7cc493;
+  --f-ui:"Barlow Semi Condensed","Arial Narrow",Arial,sans-serif;--f-data:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.4}
+.app{min-height:100%;display:grid;grid-template-columns:minmax(0,1fr) 400px;grid-template-rows:auto 1fr;gap:12px;
+  padding:10px max(16px,env(safe-area-inset-right,0px)) 16px max(16px,env(safe-area-inset-left,0px))}
+header{grid-column:1/-1;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-size:20px;letter-spacing:.06em;text-transform:uppercase}
+h1 span{color:var(--sand)}
+.spacer{flex:1}
+.chip{font-family:var(--f-data);font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--muted);display:inline-flex;gap:6px;align-items:center}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+.chip.ok i{background:var(--ok)}.chip.bad i{background:var(--warn)}.chip.mid i{background:var(--sand)}
+.btn{font:inherit;font-weight:600;letter-spacing:.02em;background:var(--desk-2);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:7px 13px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn:hover{border-color:var(--sand-dim)}
+.btn.primary{background:var(--sand);border-color:var(--sand);color:#1d1708}
+.btn.water{border-color:#2e5877;color:#cfe7fb}.btn.water.active{background:#1f4766}
+.btn:disabled{opacity:.45;cursor:default}
+:focus-visible{outline:2px solid var(--sand);outline-offset:2px}
+.view{position:relative;background:#0b0d0f;border:1px solid var(--line);border-radius:10px;overflow:hidden;align-self:start}
+#depth{display:block;width:100%;height:auto;aspect-ratio:4/3;cursor:crosshair;image-rendering:auto}
+.vcap{position:absolute;left:10px;top:10px;background:rgba(18,21,24,.85);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:13.5px;max-width:calc(100% - 20px)}
+.vlegend{display:flex;justify-content:space-between;gap:10px;padding:8px 12px;font-family:var(--f-data);font-size:12px;color:var(--muted);border-top:1px solid var(--line)}
+aside{background:var(--desk);border:1px solid var(--line);border-radius:10px;min-width:0;align-self:start}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--line)}
+.steps button{background:none;border:0;border-bottom:2px solid transparent;color:var(--muted);font:inherit;font-weight:700;padding:10px 4px;cursor:pointer;letter-spacing:.03em}
+.steps button[aria-selected="true"]{color:var(--sand);border-bottom-color:var(--sand)}
+.steps button .n{font-family:var(--f-data);font-size:11px;display:block;color:var(--muted)}
+.steps button.done .n::after{content:" ✓";color:var(--ok)}
+.pane{padding:14px 16px;display:grid;gap:12px}
+.pane h2{margin:0;font-size:18px}
+.pane p{margin:0;color:var(--muted)}
+.pane p b{color:var(--fg);font-weight:600}
+ol.how{margin:0;padding-left:20px;color:var(--muted);display:grid;gap:4px}
+ol.how b{color:var(--fg)}
+.row{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 10px}
+.row output{font-family:var(--f-data);font-size:12px;color:var(--sand)}
+.row input[type=range],.row select{grid-column:1/-1;width:100%}
+input[type=range]{accent-color:var(--sand)}
+select{background:var(--desk-2);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:6px 8px;font:inherit}
+.check{display:flex;gap:8px;align-items:center;cursor:pointer}.check input{accent-color:var(--sand);width:16px;height:16px}
+.btns{display:flex;flex-wrap:wrap;gap:6px}
+.box{background:var(--desk-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.big{font-size:17px;color:var(--fg)}
+.mono{font-family:var(--f-data);font-size:12.5px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}
+.stats{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-family:var(--f-data);font-size:12.5px}
+.stats dt{color:var(--muted)}.stats dd{margin:0}
+.bar{height:8px;background:var(--bg);border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--sand);width:0}
+details.more summary{cursor:pointer;color:var(--muted);font-weight:600}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--desk-2);border:1px solid var(--sand-dim);border-radius:8px;padding:8px 14px;z-index:30}
+@media (max-width:980px){.app{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <a class="btn" href="../">← Main page</a>
+    <h1>Physical <span>AR</span> Sandbox</h1>
+    <span class="chip" id="chipBridge"><i></i>Bridge</span>
+    <span class="chip" id="chipCam"><i></i>Camera</span>
+    <span class="chip" id="chipProj"><i></i>Projector</span>
+    <span class="spacer"></span>
+    <button class="btn primary" id="openProj">Open projector window</button>
+  </header>
+
+  <section class="view" aria-label="Camera view">
+    <canvas id="depth" width="640" height="480" aria-label="Live depth image from the Kinect"></canvas>
+    <div class="vcap" id="vcap">Waiting for the camera…</div>
+    <div class="vlegend"><span id="vleft">depth</span><span id="vmid"></span><span id="vright"></span></div>
+  </section>
+
+  <aside>
+    <div class="steps" role="tablist">
+      <button role="tab" data-step="cam" aria-selected="true"><span class="n">1</span>Camera</button>
+      <button role="tab" data-step="box" aria-selected="false"><span class="n">2</span>Box</button>
+      <button role="tab" data-step="proj" aria-selected="false"><span class="n">3</span>Projector</button>
+      <button role="tab" data-step="run" aria-selected="false"><span class="n">4</span>Run</button>
+    </div>
+
+    <!-- 1. Camera -->
+    <div class="pane" data-pane="cam">
+      <h2>Check the camera</h2>
+      <p id="camMsg">Looking for the bridge…</p>
+      <ol class="how">
+        <li>Mount the Kinect about <b>1 m above the sand</b>, looking straight down, with the whole box in view.</li>
+        <li>Install <b>Kinect for Windows SDK 1.8</b> from Microsoft, plug in the Kinect's power adapter and USB, then run <b>SandboxBridge.exe</b>.</li>
+        <li>The camera view on the left should show the sandbox. Near things are bright, far things are dark.</li>
+      </ol>
+      <div class="box" id="simBox" hidden>
+        <p><b>Simulated camera.</b> This page is generating a fake Kinect and projector so you can try the setup without hardware.</p>
+        <div class="row"><label for="simSand">Simulated sand</label><span></span>
+          <select id="simSand"><option value="hills">Hills, reshaped every 25 s</option><option value="flat">Flat (for step 2)</option></select></div>
+        <label class="check"><input type="checkbox" id="simHand"> Simulate a hand held over the sand (makes rain)</label>
+      </div>
+      <div class="btns"><button class="btn" id="goBox">Next: set up the box →</button><a class="btn" id="simLink" href="?sim=1" hidden>Try with a simulated camera</a></div>
+    </div>
+
+    <!-- 2. Box -->
+    <div class="pane" data-pane="box" hidden>
+      <h2>Set up the box</h2>
+      <ol class="how">
+        <li><b>Flatten the sand</b> to the level you want as sea level, then capture the base plane.</li>
+        <li><b>Click the four inside corners</b> of the box on the camera view, in this order: front-left, front-right, back-left, back-right. "Front" is the side where people stand.</li>
+      </ol>
+      <div class="btns"><button class="btn primary" id="capPlane">Capture base plane</button></div>
+      <div class="bar" aria-hidden="true"><i id="planeBar"></i></div>
+      <p class="mono" id="planeMsg">No base plane yet.</p>
+      <p class="big" id="cornerMsg">Capture the base plane first.</p>
+      <div class="btns"><button class="btn" id="undoCorner" disabled>Undo last corner</button><button class="btn" id="clearCorners" disabled>Start corners over</button></div>
+      <div class="row"><label for="elevMin">Lowest sand (below base)</label><output id="elevMino"></output><input type="range" id="elevMin" min="-40" max="-2" step="1" value="-15"></div>
+      <div class="row"><label for="elevMax">Highest sand (above base)</label><output id="elevMaxo"></output><input type="range" id="elevMax" min="5" max="40" step="1" value="20"></div>
+      <p>Anything higher than the highest sand, like a hand, is ignored for the terrain and turns into rain instead.</p>
+      <div class="btns"><button class="btn primary" id="saveBox" disabled>Save box setup</button></div>
+    </div>
+
+    <!-- 3. Projector -->
+    <div class="pane" data-pane="proj" hidden>
+      <h2>Calibrate the projector</h2>
+      <ol class="how">
+        <li>Click <b>Open projector window</b>, move it to the projector, and click <b>Go full screen</b> there.</li>
+        <li>Make a target: a <b>CD or a 12 cm paper disk</b> taped to the end of a thin stick.</li>
+        <li>The projector shows a crosshair. Hold the disk flat so the crosshair lands on its center. Keep still; it captures automatically. Do each spot <b>low</b> (just above the sand), then the second round <b>high</b> (about 25 cm up).</li>
+      </ol>
+      <div class="row"><label for="diskR">Disk radius</label><output id="diskRo"></output><input type="range" id="diskR" min="3" max="12" step="0.5" value="6"></div>
+      <div class="box">
+        <p class="big" id="calMsg">Open the projector window to begin.</p>
+        <div class="bar" style="margin-top:8px" aria-hidden="true"><i id="calBar"></i></div>
+        <p class="mono" id="calDetail" style="margin-top:6px"></p>
+      </div>
+      <div class="btns">
+        <button class="btn primary" id="calStart" disabled>Start calibration</button>
+        <button class="btn" id="calCapture" disabled>Capture now</button>
+        <button class="btn" id="calSkip" disabled>Skip this spot</button>
+        <button class="btn" id="calFinish" disabled>Finish and save</button>
+      </div>
+      <label class="check"><input type="checkbox" id="calAuto" checked> Capture automatically when the disk is still</label>
+    </div>
+
+    <!-- 4. Run -->
+    <div class="pane" data-pane="run" hidden>
+      <h2>Run the sandbox</h2>
+      <dl class="stats" id="stats"><dt>Projector</dt><dd>not open</dd></dl>
+      <div class="btns">
+        <button class="btn water" id="rainAll">Hold to rain</button>
+        <button class="btn water" id="drainAll">Hold to drain</button>
+        <button class="btn" id="dryAll">Remove all water</button>
+        <button class="btn" id="pause" aria-pressed="false">Pause water</button>
+      </div>
+      <label class="check"><input type="checkbox" id="handRain" checked> Hands held over the sand make rain</label>
+      <div class="row"><label for="cmap">Color map</label><span></span>
+        <select id="cmap"><option value="sarndbox">SARndbox (original)</option><option value="hypso">Hypsometric tints</option><option value="gray">Grayscale</option><option value="sand">Bare sand</option></select></div>
+      <label class="check"><input type="checkbox" id="contours" checked> Contour lines</label>
+      <div class="row"><label for="cint">Contour interval</label><output id="cinto"></output><input type="range" id="cint" min="0.25" max="5" step="0.25" value="0.75"></div>
+      <label class="check"><input type="checkbox" id="shade" checked> Hillshading</label>
+      <div class="row"><label for="sea">Sea level</label><output id="seao"></output><input type="range" id="sea" min="-10" max="10" step="0.25" value="0"></div>
+      <div class="row"><label for="rainRate">Rain strength</label><output id="rainRateo"></output><input type="range" id="rainRate" min="0.05" max="2" step="0.05" value="0.25"></div>
+      <div class="row"><label for="speed">Water speed</label><output id="speedo"></output><input type="range" id="speed" min="-1" max="1" step="0.05" value="0"></div>
+      <div class="row"><label for="evap">Evaporation</label><output id="evapo"></output><input type="range" id="evap" min="0" max="0.05" step="0.001" value="0"></div>
+      <div class="row"><label for="edges">Box edges</label><span></span><select id="edges"><option value="1">Absorb water (original sandbox)</option><option value="0">Walls hold water</option></select></div>
+      <div class="row"><label for="wcolor">Color water by</label><span></span><select id="wcolor"><option value="0">Depth</option><option value="1">Flow speed (erosion potential)</option></select></div>
+      <details class="more"><summary>Camera filter and detail</summary>
+        <div class="pane" style="padding:10px 0 0">
+          <div class="row"><label for="detail">Water grid</label><span></span><select id="detail"><option value="low">Low: 256 cells across</option><option value="standard">Standard: 400 cells across</option><option value="high">High: 640 cells across (original)</option></select></div>
+          <div class="row"><label for="hyst">Jitter filter (hysteresis)</label><output id="hysto"></output><input type="range" id="hyst" min="0" max="3" step="0.1" value="0.5"></div>
+          <div class="row"><label for="maxVar">Stability limit</label><output id="maxVaro"></output><input type="range" id="maxVar" min="4" max="64" step="1" value="16"></div>
+          <p>Raise the stability limit if parts of the sand never appear. Raise the jitter filter if the contour lines shimmer.</p>
+          <div class="btns"><button class="btn" id="saveFilter">Save and restart projector</button></div>
+        </div>
+      </details>
+    </div>
+  </aside>
+</div>
+
+<script src="common.js"></script>
+<script>
+"use strict";
+/* Physical AR Sandbox — control page.
+   Designed by Prof. Xin (Shane) Miao, Missouri State University. Based on SARndbox 2.8
+   by Oliver Kreylos (UC Davis): BoxLayout setup and CalibrateProjector, ported. GPL-2.0-or-later. */
+const $=id=>document.getElementById(id);
+const V=SBX.V;
+let CFG=SBX.defaults(),cam=SBX.KINECT;
+const bc=new BroadcastChannel(SBX.CH_CONTROL);
+let projector={open:false,W:0,H:0,stats:null,last:0},projWin=null;
+function toast(m){let t=document.querySelector('.toast');if(!t){t=document.createElement('div');t.className='toast';t.setAttribute('role','status');document.body.appendChild(t);}t.textContent=m;t.hidden=false;clearTimeout(t._h);t._h=setTimeout(()=>t.hidden=true,3500);}
+function chip(id,state,text){const c=$(id);c.className='chip '+state;c.childNodes[1].textContent=text;}
+
+/* ---------------- Steps ---------------- */
+function showStep(s){document.querySelectorAll('.steps button').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.step===s)));
+  document.querySelectorAll('.pane[data-pane]').forEach(p=>p.hidden=p.dataset.pane!==s);step=s;}
+let step='cam';
+document.querySelectorAll('.steps button').forEach(b=>b.addEventListener('click',()=>showStep(b.dataset.step)));
+$('goBox').addEventListener('click',()=>showStep('box'));
+function markDone(){const q=s=>document.querySelector(`.steps button[data-step="${s}"]`);
+  q('cam').classList.toggle('done',frames>10);q('box').classList.toggle('done',!!(CFG.plane&&CFG.corners));q('proj').classList.toggle('done',!!CFG.projector);}
+
+/* ---------------- Simulated Kinect + projector (testing without hardware) ---------------- */
+function simWorker(){
+  // World: z up, base plane z=0, box 100 × 75 cm centred on the origin. Kinect 110 cm above, tilted 6°.
+  const W=640,H=480,fx=571.26,fy=571.26,cx=320,cy=240,bc=new BroadcastChannel('sandbox-sim');
+  const norm=a=>{const l=Math.hypot(...a);return a.map(v=>v/l);},cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const C=[2,-6,110],tilt=0.1,f=norm([0.03,Math.sin(tilt),-Math.cos(tilt)]),xc=norm(cross(f,[0,1,0])),yc=cross(f,xc);
+  // the "true" projector, used only to place the calibration disk where a real person would hold it
+  const PC=[6,-42,140],pf=norm([-6,42,-140]),px_=norm(cross(pf,[0,1,0])),py_=cross(pf,px_);
+  let mode='hills',hand=false,disk=null,n=0;const t0=performance.now();
+  const dirs=new Float32Array(W*H*3);
+  for(let y=0;y<H;y++)for(let x=0;x<W;x++){const a=(x+0.5-cx)/fx,b=(y+0.5-cy)/fy;const d=norm([xc[0]*a+yc[0]*b+f[0],xc[1]*a+yc[1]*b+f[1],xc[2]*a+yc[2]*b+f[2]]);dirs.set(d,(y*W+x)*3);}
+  onmessage=e=>{const m=e.data;
+    if(m.type==='mode'){mode=m.mode;hand=m.hand;}
+    if(m.type==='disk'){if(!m.on){disk=null;return;}   // ray from the projector through the target pixel, at the requested height
+      const a=(m.x+0.5-m.W/2)/(1.25*m.W),b=(m.y+0.5-m.H/2)/(1.25*m.W);const d=norm([px_[0]*a+py_[0]*b+pf[0],px_[1]*a+py_[1]*b+pf[1],px_[2]*a+py_[2]*b+pf[2]]);
+      let z=m.h,c=null;for(let k=0;k<3;k++){const t=(z-PC[2])/d[2];c=[PC[0]+d[0]*t,PC[1]+d[1]*t,z];z=h(c[0],c[1],(performance.now()-t0)/1000)+m.h;}   // m.h above the sand under it
+      disk={c,r:m.r};}
+    if(m.type==='truth'){postMessage({type:'truth',project:null});}};
+  const inBox=(x,y)=>Math.abs(x)<=50&&Math.abs(y)<=37.5,inRim=(x,y)=>!inBox(x,y)&&Math.abs(x)<53&&Math.abs(y)<40.5;
+  function h(x,y,t){   // sand surface inside the box
+    if(mode==='flat')return 0;const k=Math.floor(t/25)*1.3;   // the sand changes in jumps, like someone reshaping it
+    return Math.max(-12,Math.min(16,6*Math.sin(x/12+0.6*Math.sin(k))*Math.cos(y/15)+4*Math.sin(x/7+y/9+0.3*k)-1.5));}
+  function frame(){const t=(performance.now()-t0)/1000,out=new Uint16Array(W*H);
+    const hc=hand?[30*Math.cos(t*0.4),20*Math.sin(t*0.4),38]:null;
+    for(let i=0;i<W*H;i++){const dx=dirs[i*3],dy=dirs[i*3+1],dz=dirs[i*3+2];
+      // box rim (12 cm high, 3 cm wide), then the sand, then the floor outside the box
+      let tt=(C[2]-12)/(-dz);
+      if(!inRim(C[0]+dx*tt,C[1]+dy*tt)){tt=C[2]/(-dz);for(let k=0;k<3;k++){const X=C[0]+dx*tt,Y=C[1]+dy*tt;tt=(C[2]-h(X,Y,t))/(-dz);}
+        if(!inBox(C[0]+dx*tt,C[1]+dy*tt))tt=(C[2]+45)/(-dz);}
+      if(disk){const td=(C[2]-disk.c[2])/(-dz);const X=C[0]+dx*td-disk.c[0],Y=C[1]+dy*td-disk.c[1];if(X*X+Y*Y<disk.r*disk.r&&td<tt)tt=td;}
+      if(hc){const ox=C[0]-hc[0],oy=C[1]-hc[1],oz=C[2]-hc[2],b=dx*ox+dy*oy+dz*oz,c=ox*ox+oy*oy+oz*oz-49,D=b*b-c;if(D>0){const th=-b-Math.sqrt(D);if(th>0&&th<tt)tt=th;}}
+      const zc=tt*(dx*f[0]+dy*f[1]+dz*f[2])*10+(Math.random()-0.5)*3;out[i]=zc>400&&zc<4000?Math.round(zc):0;}
+    n++;bc.postMessage({depth:out,w:W,h:H,n});setTimeout(frame,40);}
+  frame();
+}
+let sim=null;
+if(SBX.isSim()){sim=new Worker(URL.createObjectURL(new Blob(['('+simWorker.toString()+')()'],{type:'text/javascript'})));
+  $('simBox').hidden=false;const send=()=>sim.postMessage({type:'mode',mode:$('simSand').value,hand:$('simHand').checked});
+  $('simSand').addEventListener('change',send);$('simHand').addEventListener('change',send);send();}
+
+/* ---------------- Live depth ---------------- */
+let frames=0,camFps=0,fpsCount=0,lastDepth=null,camLink='connecting';
+const dc=$('depth'),dctx=dc.getContext('2d'),img=dctx.createImageData(640,480);
+SBX.openDepth((depth,w,h)=>{if(w!==640||h!==480)return;lastDepth=depth;frames++;fpsCount++;onFrame(depth);},st=>{camLink=st;});
+setInterval(()=>{camFps=fpsCount;fpsCount=0;
+  chip('chipCam',camFps>5?'ok':(camFps>0?'mid':'bad'),camFps>0?`Camera ${camFps} fps`:'No camera frames');
+  const age=performance.now()-projector.last;projector.open=age<2500;
+  chip('chipProj',projector.open?(CFG.projector?'ok':'mid'):'bad',projector.open?(CFG.projector?'Projector calibrated':'Projector open, not calibrated'):'Projector window closed');
+  if(!projector.open)bc.postMessage({type:'ping'});
+  $('calStart').disabled=!(projector.open&&CFG.plane)||calib.active;
+  if(!calib.active)$('calMsg').textContent=!CFG.plane?'Set up the box first (step 2).':(!projector.open?'Open the projector window to begin.':(CFG.projector?`Calibrated: ${CFG.projector.n} points, ${CFG.projector.rms.toFixed(1)} px error. You can calibrate again.`:'Ready. Press Start calibration.'));
+  renderStats();markDone();},1000);
+
+function elevOf(i,v){const x=i%640,y=(i/640)|0,n=CFG.plane.n;return v*0.1*(n[0]*(x+0.5-cam.cx)/cam.fx+n[1]*(y+0.5-cam.cy)/cam.fy+n[2])+CFG.plane.d;}
+function drawDepth(depth){
+  const d=img.data;const P=CFG.plane;const lo=CFG.filter.elevMin,hi=CFG.filter.elevMax;
+  let K=null;if(P){K=precK();}
+  for(let i=0;i<640*480;i++){const v=depth[i],o=i*4;
+    if(!v){d[o]=d[o+1]=d[o+2]=0;d[o+3]=255;continue;}
+    if(K){const e=v*K[i]+P.d;let r,g,b;
+      if(e>hi){r=g=b=150+Math.min(105,(e-hi)*3);}   // above the sand: hands, the calibration disk
+      else{const t=Math.max(0,Math.min(1,(e-lo)/(hi-lo)));
+        r=t<0.5?40+t*2*60:100+(t-0.5)*2*155;g=t<0.5?90+t*2*110:200-(t-0.5)*2*60;b=t<0.5?160-t*2*100:60+(t-0.5)*2*40;}
+      d[o]=r;d[o+1]=g;d[o+2]=b;}
+    else{const g=Math.max(0,Math.min(255,255-(v-500)*0.25));d[o]=d[o+1]=d[o+2]=g;}
+    d[o+3]=255;}
+  dctx.putImageData(img,0,0);
+  // overlays
+  const cp=CFG.cornerPx||[];dctx.lineWidth=2;
+  if(cornersTmp.length){drawCorners(cornersTmp,'#d8b46a');}else if(cp.length===4)drawCorners(cp,'#7cc493');
+  if(calib.det){const p=SBX.project(cam,calib.det.c);dctx.strokeStyle=calib.det.stable?'#7cc493':'#d8b46a';dctx.lineWidth=3;dctx.beginPath();dctx.arc(p[0],p[1],calib.det.rpx,0,Math.PI*2);dctx.stroke();
+    dctx.beginPath();dctx.moveTo(p[0]-8,p[1]);dctx.lineTo(p[0]+8,p[1]);dctx.moveTo(p[0],p[1]-8);dctx.lineTo(p[0],p[1]+8);dctx.stroke();}
+  for(const q of calib.pairs){const p=SBX.project(cam,q.P);dctx.fillStyle='#58a9e6';dctx.beginPath();dctx.arc(p[0],p[1],4,0,Math.PI*2);dctx.fill();}
+  $('vleft').textContent=P?`${lo} cm (low sand)`:'near = bright';$('vmid').textContent=P?'base plane':'';$('vright').textContent=P?`+${hi} cm · gray = above the sand`:'far = dark';
+}
+function drawCorners(cp,color){const names=['front-left','front-right','back-left','back-right'];dctx.strokeStyle=color;dctx.fillStyle=color;
+  const order=[0,1,3,2];if(cp.length===4){dctx.beginPath();order.forEach((k,j)=>{const p=cp[k];j?dctx.lineTo(p[0],p[1]):dctx.moveTo(p[0],p[1]);});dctx.closePath();dctx.stroke();}
+  dctx.font='600 14px "Barlow Semi Condensed",Arial,sans-serif';cp.forEach((p,k)=>{dctx.beginPath();dctx.arc(p[0],p[1],5,0,Math.PI*2);dctx.fill();dctx.fillText(names[k],p[0]+8,p[1]-8);});}
+let Kcache=null,Kplane=null;
+function precK(){if(Kplane===CFG.plane)return Kcache;const n=CFG.plane.n;Kcache=new Float32Array(640*480);
+  for(let y=0;y<480;y++)for(let x=0;x<640;x++)Kcache[y*640+x]=(n[0]*(x+0.5-cam.cx)/cam.fx+n[1]*(y+0.5-cam.cy)/cam.fy+n[2])*0.1;Kplane=CFG.plane;return Kcache;}
+
+let drawPending=false;
+function onFrame(depth){
+  if(plane.active)planeAccum(depth);
+  if(calib.active)calibFrame(depth);
+  if(!drawPending){drawPending=true;requestAnimationFrame(()=>{drawPending=false;if(lastDepth)drawDepth(lastDepth);});}
+  const cap=$('vcap');
+  cap.textContent=step==='box'?(CFG.plane?(cornersTmp.length<4?`Click the ${['front-left','front-right','back-left','back-right'][cornersTmp.length]} corner`:'Corners set'):'Flatten the sand, then capture the base plane'):
+    (step==='proj'&&calib.active?calibPrompt():(CFG.plane?'Colors show sand height above the base plane':'Live depth from the Kinect'));
+}
+
+/* ---------------- Step 2: base plane and corners ---------------- */
+const plane={active:false,n:0,sum:null,cnt:null};
+const PLANE_FRAMES=30;
+$('capPlane').addEventListener('click',()=>{plane.active=true;plane.n=0;plane.sum=new Float64Array(640*480);plane.cnt=new Uint16Array(640*480);$('planeMsg').textContent='Averaging 30 frames. Keep hands out of the box.';});
+function planeAccum(depth){for(let i=0;i<depth.length;i++){const v=depth[i];if(v){plane.sum[i]+=v;plane.cnt[i]++;}}plane.n++;$('planeBar').style.width=(100*plane.n/PLANE_FRAMES)+'%';
+  if(plane.n>=PLANE_FRAMES){plane.active=false;fitBasePlane();}}
+function fitBasePlane(){
+  // use the middle of the image (or inside the corners, if known) where the sand is
+  const pts=[];for(let y=96;y<384;y+=3)for(let x=128;x<512;x+=3){const i=y*640+x;if(plane.cnt[i]>PLANE_FRAMES/2)pts.push(SBX.point(cam,x,y,plane.sum[i]/plane.cnt[i]*0.1));}
+  if(pts.length<500){$('planeMsg').textContent='Not enough depth readings in the middle of the image. Check that the camera sees the sand.';return;}
+  let pl=SBX.fitPlane(pts);
+  for(let it=0;it<2;it++){const keep=pts.filter(p=>Math.abs(V.dot(pl.n,p)+pl.d)<1.5);if(keep.length>300)pl=SBX.fitPlane(keep);}
+  let se=0;for(const p of pts){const e=V.dot(pl.n,p)+pl.d;se+=e*e;}const rms=Math.sqrt(se/pts.length);
+  CFG.plane={n:pl.n,d:pl.d};CFG.corners=null;cornersTmp=[];Kplane=null;
+  const tiltDeg=Math.acos(Math.abs(pl.n[2]))*180/Math.PI;
+  $('planeMsg').innerHTML=`Base plane ${pl.d.toFixed(1)} cm from the camera, tilted ${tiltDeg.toFixed(1)}°. Flatness ${rms.toFixed(2)} cm RMS.`+(rms>1.5?' <span class="warn">The sand isn\'t very flat; flatten it more and capture again for best results.</span>':'');
+  updateCornerUI();}
+let cornersTmp=[];
+dc.addEventListener('click',e=>{if(step!=='box'||!CFG.plane||cornersTmp.length>=4)return;const r=dc.getBoundingClientRect();
+  const x=(e.clientX-r.left)/r.width*640,y=(e.clientY-r.top)/r.height*480;cornersTmp.push([x,y]);updateCornerUI();});
+$('undoCorner').addEventListener('click',()=>{cornersTmp.pop();updateCornerUI();});
+$('clearCorners').addEventListener('click',()=>{cornersTmp=[];updateCornerUI();});
+function updateCornerUI(){const names=['front-left','front-right','back-left','back-right'];
+  $('undoCorner').disabled=$('clearCorners').disabled=!cornersTmp.length;
+  if(!CFG.plane){$('cornerMsg').textContent='Capture the base plane first.';$('saveBox').disabled=true;return;}
+  if(cornersTmp.length<4){$('cornerMsg').textContent=`Click the ${names[cornersTmp.length]} corner (${cornersTmp.length} of 4).`;$('saveBox').disabled=true;return;}
+  const corners=cornersTmp.map(p=>SBX.rayPlane(cam,CFG.plane,p[0],p[1]));if(corners.some(c=>!c)){$('cornerMsg').textContent='A corner is off the base plane. Start the corners over.';return;}
+  const bf=SBX.boxFrame(CFG.plane,corners);
+  $('cornerMsg').innerHTML=`Box measures <b>${bf.LX.toFixed(1)} × ${bf.LY.toFixed(1)} cm</b>. Save to use it.`;$('saveBox').disabled=false;}
+function setupRange(id,fmt,fn){const el=$(id),out=$(id+'o');const u=()=>{const v=parseFloat(el.value);fn(v);if(out)out.textContent=fmt(v);};el.addEventListener('input',u);u();return u;}
+setupRange('elevMin',v=>v+' cm',v=>CFG.filter.elevMin=v);setupRange('elevMax',v=>'+'+v+' cm',v=>CFG.filter.elevMax=v);
+$('saveBox').addEventListener('click',async()=>{const corners=cornersTmp.map(p=>SBX.rayPlane(cam,CFG.plane,p[0],p[1]));const bf=SBX.boxFrame(CFG.plane,corners);
+  CFG.corners=corners;CFG.cornerPx=cornersTmp.slice();CFG.box={LX:bf.LX,LY:bf.LY};cornersTmp=[];
+  const where=await SBX.saveConfig(CFG);bc.postMessage({type:'cmd',name:'reload'});toast(`Box saved to ${where}.`);updateCornerUI();
+  $('cornerMsg').innerHTML=`Saved: <b>${bf.LX.toFixed(1)} × ${bf.LY.toFixed(1)} cm</b>. Next, calibrate the projector.`;showStep('proj');});
+
+/* ---------------- Step 3: projector calibration (CalibrateProjector port) ---------------- */
+const TARGETS=[];for(const hgt of ['low','high'])for(const v of [0.2,0.5,0.8])for(const u of [0.15,0.38,0.62,0.85])TARGETS.push({u,v,hgt});
+const calib={active:false,i:0,pairs:[],bg:null,bgN:0,bgCnt:null,hist:[],det:null,stableSince:0,lastCapture:null,px:null};
+setupRange('diskR',v=>v.toFixed(1)+' cm',()=>{});
+function calibPrompt(){if(calib.bg===null)return 'Measuring the sand. Keep the disk and your hands out of the box…';const t=TARGETS[calib.i];if(!t)return 'Done';
+  return `Spot ${calib.i+1} of ${TARGETS.length}: hold the disk ${t.hgt==='low'?'low, just above the sand':'high, about 25 cm up'} on the crosshair`;}
+$('calStart').addEventListener('click',()=>{Object.assign(calib,{active:true,i:0,pairs:[],bg:null,bgN:0,hist:[],det:null,stableSince:0,lastCapture:null,px:null});
+  calib.bgSum=new Float64Array(640*480);calib.bgCnt=new Uint16Array(640*480);
+  ['calCapture','calSkip','calFinish'].forEach(id=>$(id).disabled=false);$('calStart').disabled=true;
+  bc.postMessage({type:'calib',on:true,target:null});$('calMsg').textContent=calibPrompt();});   // dark screen while the sand is measured; first crosshair follows
+function showTarget(){const t=TARGETS[calib.i];calib.hist=[];calib.stableSince=0;calib.px=null;
+  if(!t){finishCalib();return;}bc.postMessage({type:'calib',on:true,target:{u:t.u,v:t.v,i:calib.i}});
+  $('calMsg').textContent=calibPrompt();$('calBar').style.width=(100*calib.i/TARGETS.length)+'%';}
+bc.onmessage=e=>{const m=e.data;if(!m)return;
+  if(m.type==='hello'){projector.W=m.W;projector.H=m.H;projector.last=performance.now();sendSettings();}
+  if(m.type==='stats'){projector.stats=m;projector.last=performance.now();}
+  if(m.type==='targetPx'&&calib.active&&m.i===calib.i){calib.px=m;
+    if(sim){const t=TARGETS[calib.i];sim.postMessage({type:'disk',on:true,x:m.x,y:m.y,W:m.W,H:m.H,h:t.hgt==='low'?5:25,r:parseFloat($('diskR').value)});}}};
+function calibFrame(depth){
+  if(calib.bg===null){for(let i=0;i<depth.length;i++){const v=depth[i];if(v){calib.bgSum[i]+=v;calib.bgCnt[i]++;}}
+    if(++calib.bgN>=15){calib.bg=new Float32Array(640*480);for(let i=0;i<calib.bg.length;i++)calib.bg[i]=calib.bgCnt[i]?calib.bgSum[i]/calib.bgCnt[i]:0;showTarget();}return;}
+  const det=detectDisk(depth);calib.det=det;const now=performance.now();
+  if(!det){calib.hist=[];calib.stableSince=0;$('calDetail').textContent='No disk seen above the sand.';return;}
+  calib.hist.push(det.c);if(calib.hist.length>12)calib.hist.shift();
+  const mean=calib.hist.reduce((a,c)=>V.add(a,c),[0,0,0]).map(v=>v/calib.hist.length);
+  const spread=Math.max(...calib.hist.map(c=>V.len(V.sub(c,mean))));
+  det.stable=calib.hist.length>=8&&spread<0.4;
+  const movedOn=!calib.lastCapture||V.len(V.sub(mean,calib.lastCapture))>3;
+  if(det.stable&&movedOn&&calib.px){if(!calib.stableSince)calib.stableSince=now;}else calib.stableSince=0;
+  const height=CFG.plane?V.dot(CFG.plane.n,mean)+CFG.plane.d:0;
+  $('calDetail').textContent=`Disk seen ${height.toFixed(1)} cm above the base, ${det.points} points`+(det.stable?(movedOn?' · steady':' · move to the new crosshair'):' · hold still');
+  if($('calAuto').checked&&calib.stableSince&&now-calib.stableSince>1000)capture(mean);
+}
+function detectDisk(depth){
+  // pixels well above the measured sand (≥ 2.5 cm), sampled on a 2-pixel grid, then eroded so thin sticks drop out
+  const bw=320,bh=240,mask=new Uint8Array(bw*bh),bg=calib.bg;
+  for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const i=(y*2)*640+x*2,v=depth[i],b=bg[i];if(v&&b&&b-v>25)mask[y*bw+x]=1;}
+  const er=new Uint8Array(bw*bh);for(let y=1;y<bh-1;y++)for(let x=1;x<bw-1;x++){const k=y*bw+x;er[k]=mask[k]&&mask[k-1]&&mask[k+1]&&mask[k-bw]&&mask[k+bw];}
+  const lab=new Int32Array(bw*bh);let best=null,id=0;const st=[];
+  for(let s=0;s<bw*bh;s++){if(!er[s]||lab[s])continue;id++;const cells=[];st.push(s);lab[s]=id;
+    while(st.length){const k=st.pop();cells.push(k);for(const t of [k-1,k+1,k-bw,k+bw])if(t>=0&&t<bw*bh&&er[t]&&!lab[t]){lab[t]=id;st.push(t);}}
+    if(!best||cells.length>best.length)best=cells;}
+  if(!best||best.length<20)return null;
+  let pts=best.map(k=>{const x=(k%bw)*2,y=((k/bw)|0)*2;return SBX.point(cam,x,y,depth[y*640+x]*0.1);});
+  const R=parseFloat($('diskR').value);let c=pts.reduce((a,p)=>V.add(a,p),[0,0,0]).map(v=>v/pts.length);
+  for(let it=0;it<5;it++){const near=pts.filter(p=>V.len(V.sub(p,c))<R*1.15);if(near.length<10)return null;c=near.reduce((a,p)=>V.add(a,p),[0,0,0]).map(v=>v/near.length);if(it===4)pts=near;}
+  const rpx=R/c[2]*cam.fx;const expected=Math.PI*rpx*rpx/4;   // cells on the 2-pixel grid
+  if(pts.length<expected*0.35)return null;
+  return {c,points:pts.length,rpx};}
+function capture(P){if(!calib.px)return;const q={P,u:calib.px.x,v:calib.px.y,W:calib.px.W,H:calib.px.H};calib.pairs.push(q);calib.lastCapture=P;calib.i++;showTarget();}
+$('calCapture').addEventListener('click',()=>{if(calib.det&&calib.hist.length)capture(calib.hist.reduce((a,c)=>V.add(a,c),[0,0,0]).map(v=>v/calib.hist.length));});
+$('calSkip').addEventListener('click',()=>{calib.i++;showTarget();});
+$('calFinish').addEventListener('click',finishCalib);
+async function finishCalib(){
+  bc.postMessage({type:'calib',on:false});if(sim)sim.postMessage({type:'disk',on:false});
+  calib.active=false;calib.det=null;['calCapture','calSkip','calFinish'].forEach(id=>$(id).disabled=true);
+  if(calib.pairs.length<6){$('calMsg').textContent=`Only ${calib.pairs.length} spots captured; at least 6 are needed (12 or more is better). Start again.`;return;}
+  const sol=SBX.solveProjector(calib.pairs);const W=calib.pairs[0].W,H=calib.pairs[0].H;
+  CFG.projector={P:sol.P,W,H,rms:sol.rms,n:calib.pairs.length};
+  const where=await SBX.saveConfig(CFG);bc.postMessage({type:'cmd',name:'reload'});
+  $('calMsg').innerHTML=`Calibrated from ${calib.pairs.length} spots. Average error <b class="${sol.rms<4?'ok':'warn'}">${sol.rms.toFixed(1)} px</b>`+(sol.rms<4?'.':'; try again with steadier, flatter disk placements.');
+  $('calBar').style.width='100%';toast(`Calibration saved to ${where}.`);calib.pairs=[];}
+
+/* ---------------- Step 4: run settings (sent to the projector window) ---------------- */
+const S={cmap:'sarndbox',contours:true,cint:0.75,shade:true,sea:0,wcolor:0,speed:1,evap:0,dry:1,rainRate:0.25,paused:false,holdRain:false,holdDrain:false,handRain:true};
+function sendSettings(){bc.postMessage({type:'settings',S,filter:{hysteresis:CFG.filter.hysteresis,maxVariance:CFG.filter.maxVariance},rain:{enabled:S.handRain}});}
+const chk=(id,k)=>{$(id).addEventListener('change',e=>{S[k]=e.target.checked;sendSettings();});};
+chk('contours','contours');chk('shade','shade');chk('handRain','handRain');
+$('cmap').addEventListener('change',e=>{S.cmap=e.target.value;sendSettings();});
+$('edges').addEventListener('change',e=>{S.dry=+e.target.value;sendSettings();});
+$('wcolor').addEventListener('change',e=>{S.wcolor=+e.target.value;sendSettings();});
+setupRange('cint',v=>v.toFixed(2)+' cm',v=>{S.cint=v;sendSettings();});
+setupRange('sea',v=>(v>0?'+':'')+v.toFixed(2)+' cm',v=>{S.sea=v;sendSettings();});
+setupRange('rainRate',v=>v.toFixed(2)+' cm/s',v=>{S.rainRate=v;sendSettings();});
+setupRange('speed',v=>Math.pow(10,v).toFixed(2)+'×',v=>{S.speed=Math.pow(10,v);sendSettings();});
+setupRange('evap',v=>v.toFixed(3)+' cm/s',v=>{S.evap=v;sendSettings();});
+setupRange('hyst',v=>v.toFixed(1)+' mm',v=>{CFG.filter.hysteresis=v;sendSettings();});
+setupRange('maxVar',v=>v+' mm²',v=>{CFG.filter.maxVariance=v;sendSettings();});
+$('pause').addEventListener('click',()=>{S.paused=!S.paused;$('pause').textContent=S.paused?'Resume water':'Pause water';$('pause').setAttribute('aria-pressed',String(S.paused));sendSettings();});
+$('dryAll').addEventListener('click',()=>bc.postMessage({type:'cmd',name:'dry'}));
+function hold(id,k){const b=$(id);const on=e=>{e.preventDefault();S[k]=true;b.classList.add('active');sendSettings();},off=()=>{if(!S[k])return;S[k]=false;b.classList.remove('active');sendSettings();};
+  b.addEventListener('pointerdown',on);['pointerup','pointerleave','pointercancel'].forEach(ev=>b.addEventListener(ev,off));}
+hold('rainAll','holdRain');hold('drainAll','holdDrain');
+$('saveFilter').addEventListener('click',async()=>{CFG.detail=$('detail').value;const where=await SBX.saveConfig(CFG);bc.postMessage({type:'cmd',name:'reload'});toast(`Saved to ${where}. The projector window restarted.`);});
+function renderStats(){const s=projector.stats,el=$('stats');
+  if(!projector.open||!s){el.innerHTML='<dt>Projector</dt><dd>window not open</dd>';return;}
+  el.innerHTML=`<dt>Projector</dt><dd>${s.fps.toFixed(0)} fps · ${s.projector?'calibrated':'<span class="warn">not calibrated</span>'}</dd>
+    <dt>Camera input</dt><dd>${s.depthFps.toFixed(0)} frames/s · ${(s.valid*100).toFixed(0)} % of pixels on the sand · filter ${s.filterMs.toFixed(0)} ms</dd>
+    <dt>Box</dt><dd>${s.box[0].toFixed(0)} × ${s.box[1].toFixed(0)} cm · water grid ${s.grid[0]} × ${s.grid[1]}</dd>
+    <dt>Water</dt><dd>${s.water.toFixed(2)} L · ${s.steps} steps/frame</dd>
+    <dt>Rain clouds</dt><dd>${s.rain} hand${s.rain===1?'':'s'} over the sand</dd>`;}
+
+/* ---------------- Projector window ---------------- */
+$('openProj').addEventListener('click',async()=>{
+  let feat='popup=yes,width=1024,height=768';
+  if('getScreenDetails' in window){try{const sd=await getScreenDetails();const other=sd.screens.find(s=>s!==sd.currentScreen);
+    if(other)feat=`popup=yes,left=${other.availLeft},top=${other.availTop},width=${other.availWidth},height=${other.availHeight}`;}catch(e){}}
+  projWin=window.open('projector.html'+location.search,'sandboxProjector',feat);
+  if(!projWin)toast('The browser blocked the window. Allow pop-ups for this page, or open projector.html yourself.');});
+
+/* ---------------- Start ---------------- */
+(async()=>{
+  CFG=await SBX.loadConfig();cam=CFG.camera;
+  $('elevMin').value=CFG.filter.elevMin;$('elevMax').value=CFG.filter.elevMax;$('elevMin').dispatchEvent(new Event('input'));$('elevMax').dispatchEvent(new Event('input'));
+  $('hyst').value=CFG.filter.hysteresis;$('maxVar').value=CFG.filter.maxVariance;$('hyst').dispatchEvent(new Event('input'));$('maxVar').dispatchEvent(new Event('input'));
+  $('detail').value=CFG.detail;
+  if(CFG.plane)$('planeMsg').textContent=`Base plane saved (${CFG.plane.d.toFixed(1)} cm from the camera).`;
+  if(CFG.box)$('cornerMsg').innerHTML=`Saved box: <b>${CFG.box.LX.toFixed(1)} × ${CFG.box.LY.toFixed(1)} cm</b>. Recapture the base plane to set it up again.`;
+  const st=SBX.isSim()?{camera:'Simulated Kinect',simulated:true}:await SBX.bridgeStatus();
+  if(SBX.isSim()){chip('chipBridge','mid','Simulated');$('camMsg').innerHTML='<b>Simulated camera and projector.</b> Nothing here touches real hardware.';}
+  else if(!st){chip('chipBridge','bad','Bridge not running');$('simLink').hidden=false;
+    $('camMsg').innerHTML='<span class="warn">The bridge isn\'t running.</span> Start <b>SandboxBridge.exe</b> and open this page from the address it shows (http://localhost:8765/physical/).';}
+  else{chip('chipBridge','ok','Bridge');$('camMsg').innerHTML=st.error?`<span class="warn">${st.error}</span>`:`Connected to <b>${st.camera}</b>.`;if(st.error)$('simLink').hidden=false;}
+  markDone();
+})();
+window.__ctl={CFG:()=>CFG,calib,targets:TARGETS,cornersTmp:()=>cornersTmp,setCorners:a=>{cornersTmp=a.slice();updateCornerUI();},S,get frames(){return frames;},showStep};
+</script>
+</body>
+</html>

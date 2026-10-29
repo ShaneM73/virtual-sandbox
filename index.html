@@ -21,7 +21,8 @@ h1 span{color:var(--sand)}
 .lede{color:var(--muted);max-width:64ch;margin:12px 0 30px}
 .byline{font-family:var(--f-data);font-size:13px;color:var(--muted);letter-spacing:.02em;margin-top:10px}
 .byline b{color:var(--fg);font-weight:500}
-.apps{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:stretch}
+.apps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;align-items:stretch}
+@media (max-width:860px){.apps{grid-template-columns:1fr 1fr}}
 @media (max-width:560px){.apps{grid-template-columns:1fr}}
 a.card{display:flex;flex-direction:column;gap:6px;text-decoration:none;color:inherit;background:var(--desk);border:1px solid var(--line);border-radius:12px;padding:20px 22px}
 a.card:hover,a.card:focus-visible{border-color:var(--sand);outline:none}
@@ -30,6 +31,7 @@ a.card:hover,a.card:focus-visible{border-color:var(--sand);outline:none}
 .card p{margin:0;color:var(--muted)}
 .card .go{margin-top:auto;padding-top:12px;font-weight:700;color:var(--sand)}
 .card.vr .go{color:var(--water)}
+.card.phys .go{color:#7cc493}
 section{margin-top:48px}
 h3{font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 12px;font-weight:700}
 .story{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:18px}
@@ -63,7 +65,7 @@ footer a{color:var(--water)}
 <main>
   <h1>Virtual <span>AR</span> Sandbox</h1>
   <p class="byline">Designed by <b>Prof. Xin (Shane) Miao</b> · Missouri State University</p>
-  <p class="lede">The Augmented Reality Sandbox, moved from a physical box of sand into a virtual 3D world. It runs in a web browser on an ordinary Windows computer, or in VR on a Meta Quest, so any student can shape a landscape and watch water flow over it.</p>
+  <p class="lede">The Augmented Reality Sandbox, moved from a physical box of sand into a virtual 3D world. It runs in a web browser on an ordinary Windows computer, or in VR on a Meta Quest, so any student can shape a landscape and watch water flow over it. A real sandbox can be driven from Windows too.</p>
 
   <div class="apps">
     <a class="card" href="desktop/">
@@ -71,6 +73,12 @@ footer a{color:var(--water)}
       <h2>Desktop sandbox</h2>
       <p>Mouse or touch. 3D and projector views, seven landscapes, terrain-model matching, soil infiltration, and elevation grids you can open in GIS software.</p>
       <span class="go">Open the desktop sandbox →</span>
+    </a>
+    <a class="card phys" href="physical/">
+      <span class="tag">Real sandbox · Windows 11 + Kinect</span>
+      <h2>Physical sandbox</h2>
+      <p>Run a real AR Sandbox from a Windows PC: a Kinect v1 reads the sand and a projector paints the map and water back onto it. Includes setup and projector calibration.</p>
+      <span class="go">Open the control page →</span>
     </a>
     <a class="card vr" href="vr/">
       <span class="tag">Meta Quest · WebXR</span>

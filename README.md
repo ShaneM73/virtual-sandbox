@@ -6,6 +6,7 @@
 |---|---|
 | 🖥️ **Desktop** (Windows, any browser) | **https://shanem73.github.io/virtual-sandbox/desktop/** |
 | 🥽 **VR** (Meta Quest Browser) | **https://shanem73.github.io/virtual-sandbox/vr/** |
+| 🏖️ **Physical sandbox** (Windows 11 + Kinect v1 + projector) | Runs locally: see [`bridge/README.md`](bridge/README.md) |
 
 **Designer:** Prof. Xin (Shane) Miao, Missouri State University
 
@@ -30,8 +31,19 @@ The water is the original **SARndbox 2.8** solver (a Kurganov–Petrova central-
 |---|---|---|
 | Desktop | [`desktop/`](desktop/) | Any current Chrome, Edge, Firefox or Safari with WebGL2 |
 | VR | [`vr/`](vr/) | Meta Quest Browser (Quest 2, 3, Pro), or PC VR in Chrome or Edge |
+| Physical | [`physical/`](physical/) + [`bridge/`](bridge/) | Windows 11 with a Kinect v1 and a projector, in Edge or Chrome |
 
-Each version is a single self-contained HTML file. There's no build step and nothing to install.
+The desktop and VR versions are single self-contained HTML files, with no build step and nothing to install. The physical version adds a small Windows program for the Kinect.
+
+## Physical sandbox on Windows 11
+
+The `bridge/` and `physical/` folders run a **real** AR Sandbox from Windows, replacing the Linux SARndbox setup:
+
+- **`SandboxBridge.exe`** reads the Kinect v1 through Microsoft's Kinect SDK 1.8 and serves the pages locally.
+- **The control page** walks you through the box layout and the projector calibration (the same disk method as SARndbox's `CalibrateProjector`).
+- **The projector page** runs SARndbox's depth filter, rain-under-hands, and water simulation, and paints the result onto the sand.
+
+Step-by-step guide: **[bridge/README.md](bridge/README.md)**. You can try the whole setup without hardware using `Start Simulated.bat`.
 
 ## Run it
 

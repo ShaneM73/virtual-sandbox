@@ -17,6 +17,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
 body{background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:15px;line-height:1.4;overflow:hidden}
 #gl{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
@@ -280,12 +281,13 @@ void main(){ivec2 c=ivec2(gl_FragCoord.xy);
   o=vec4(n,0.0);}`;
 // Water2WaterUpdateShader + sources/sinks, plus Green–Ampt infiltration (extension). Writes quantity and soil state.
 const WATER_FS=HEAD+`
-uniform sampler2D uFeat;uniform float uDt;uniform float uGlobal;uniform float uEvap;uniform vec4 uBrush;uniform float uCs;
+uniform sampler2D uFeat;uniform float uDt;uniform float uGlobal;uniform float uEvap;uniform vec4 uBrush;uniform vec4 uRain[4];uniform float uCs;
 uniform float uKs;uniform float uPsi;
 layout(location=0) out vec4 o;layout(location=1) out vec4 oF;
 void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec3 q=texelFetch(uQ,c,0).rgb;vec4 f=texelFetch(uFeat,c,0);float b=Bc(c);
   vec2 p=(vec2(c)+0.5)*uCs;float amt=uGlobal-uEvap+f.r-f.g;
   if(uBrush.z>0.0&&distance(p,uBrush.xy)<uBrush.z) amt+=uBrush.w;
+  for(int i=0;i<4;i++){vec4 r=uRain[i];if(r.z>0.0&&distance(p,r.xy)<r.z)amt+=r.w;}   // rain under hands (RainMaker)
   float hOld=q.x-b;float hNew=max(hOld+amt*uDt,0.0);
   if(uKs>0.0&&hNew>0.0){float cap=uKs*(1.0+uPsi/max(f.b,0.05))*uDt;float inf=min(cap,hNew);hNew-=inf;f.b+=inf;}
   q.x=hNew+b;

@@ -429,9 +429,9 @@ namespace SandboxBridge
                 string head = ReadHead(s);
                 if (head == null) return;
                 string[] lines = head.Split(new string[] { "\r\n" }, StringSplitOptions.None);
-                string[] req = lines[0].Split(' ');
+                string[] req = lines[0].Split(new char[] { ' ' });
                 if (req.Length < 2) return;
-                string method = req[0], path = Uri.UnescapeDataString(req[1].Split('?')[0]);
+                string method = req[0], path = Uri.UnescapeDataString(req[1].Split(new char[] { '?' })[0]);
                 Dictionary<string, string> hdr = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 for (int i = 1; i < lines.Length; i++)
                 {
@@ -505,7 +505,7 @@ namespace SandboxBridge
         static void ServeFile(NetworkStream s, string path)
         {
             if (path.Contains("..")) { Send(s, 403, "text/plain", Encoding.UTF8.GetBytes("Forbidden")); return; }
-            string rel = path.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
+            string rel = path.TrimStart(new char[] { '/' }).Replace('/', Path.DirectorySeparatorChar);
             string full = Path.Combine(webRoot, rel);
             if (Directory.Exists(full))
             {

@@ -39,6 +39,10 @@ The desktop and VR versions are single self-contained HTML files, with no build 
 
 Run a **real** AR Sandbox from an ordinary Windows 11 PC, with no Linux needed. A Kinect v1 reads the sand, and a projector paints the colored map, contour lines and flowing water back onto it. This replaces the Linux SARndbox installation.
 
+> **Why Windows 11.** *(from the designer, Prof. Xin (Shane) Miao)*
+>
+> The original AR Sandbox software, SARndbox, is excellent, but it was written for Linux. Running it means installing a Linux computer, compiling the Vrui VR toolkit and the Kinect 3D Video package from source, setting up graphics drivers, and calibrating the box and the projector with command-line tools. That's routine for a computer scientist, but it puts the sandbox out of reach for most geography and geoscience departments, K-12 schools and museums, whose computers run Windows and are managed by campus IT. I moved the software to Windows 11 so that anyone who can install a program can set up a sandbox: install Microsoft's Kinect driver, unzip a folder, double-click to start, and follow a guided, on-screen calibration. The parts that make the sandbox a good teaching tool stay the same, including the SARndbox water simulation, the depth filtering, and rain under students' hands. What changes is that it runs in a familiar web browser on the computers schools already own. The same code also powers the fully virtual desktop and VR versions, so students without access to a physical sandbox can still learn from it.
+
 ```
 Kinect v1 ──USB──► SandboxBridge.exe ──localhost──► Edge / Chrome
                    reads depth                      control page   (your monitor)

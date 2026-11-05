@@ -123,7 +123,7 @@ details.more summary{cursor:pointer;color:var(--muted);font-weight:600}
       <div class="btns"><button class="btn" id="undoCorner" disabled>Undo last corner</button><button class="btn" id="clearCorners" disabled>Start corners over</button></div>
       <div class="row"><label for="elevMin">Lowest sand (below base)</label><output id="elevMino"></output><input type="range" id="elevMin" min="-40" max="-2" step="1" value="-15"></div>
       <div class="row"><label for="elevMax">Highest sand (above base)</label><output id="elevMaxo"></output><input type="range" id="elevMax" min="5" max="40" step="1" value="20"></div>
-      <p>Anything higher than the highest sand, like a hand, is ignored for the terrain and turns into rain instead.</p>
+      <p>Hands and other objects held over the sand are kept out of the terrain and make rain instead.</p>
       <div class="btns"><button class="btn primary" id="saveBox" disabled>Save box setup</button></div>
     </div>
 
@@ -161,6 +161,7 @@ details.more summary{cursor:pointer;color:var(--muted);font-weight:600}
         <button class="btn" id="pause" aria-pressed="false">Pause water</button>
       </div>
       <label class="check"><input type="checkbox" id="handRain" checked> Hands held over the sand make rain</label>
+      <p id="rainZone"></p>
       <div class="row"><label for="cmap">Color map</label><span></span>
         <select id="cmap"><option value="sarndbox">SARndbox (original)</option><option value="hypso">Hypsometric tints</option><option value="gray">Grayscale</option><option value="sand">Bare sand</option></select></div>
       <label class="check"><input type="checkbox" id="contours" checked> Contour lines</label>
@@ -231,7 +232,7 @@ function simWorker(){
     if(mode==='flat')return 0;const k=Math.floor(t/25)*1.3;   // the sand changes in jumps, like someone reshaping it
     return Math.max(-12,Math.min(16,6*Math.sin(x/12+0.6*Math.sin(k))*Math.cos(y/15)+4*Math.sin(x/7+y/9+0.3*k)-1.5));}
   function frame(){const t=(performance.now()-t0)/1000,out=new Uint16Array(W*H);
-    const hc=hand?[30*Math.cos(t*0.4),20*Math.sin(t*0.4),38]:null;
+    const hc=hand?[30*Math.cos(t*0.4),20*Math.sin(t*0.4),28+18*Math.sin(t*0.5)]:null;   // a hand that rises and falls, sometimes closer than the Kinect can see
     for(let i=0;i<W*H;i++){const dx=dirs[i*3],dy=dirs[i*3+1],dz=dirs[i*3+2];
       // box rim (12 cm high, 3 cm wide), then the sand, then the floor outside the box
       let tt=(C[2]-12)/(-dz);
@@ -239,7 +240,7 @@ function simWorker(){
         if(!inBox(C[0]+dx*tt,C[1]+dy*tt))tt=(C[2]+45)/(-dz);}
       if(disk){const td=(C[2]-disk.c[2])/(-dz);const X=C[0]+dx*td-disk.c[0],Y=C[1]+dy*td-disk.c[1];if(X*X+Y*Y<disk.r*disk.r&&td<tt)tt=td;}
       if(hc){const ox=C[0]-hc[0],oy=C[1]-hc[1],oz=C[2]-hc[2],b=dx*ox+dy*oy+dz*oz,c=ox*ox+oy*oy+oz*oz-49,D=b*b-c;if(D>0){const th=-b-Math.sqrt(D);if(th>0&&th<tt)tt=th;}}
-      const zc=tt*(dx*f[0]+dy*f[1]+dz*f[2])*10+(Math.random()-0.5)*3;out[i]=zc>400&&zc<4000?Math.round(zc):0;}
+      const zc=tt*(dx*f[0]+dy*f[1]+dz*f[2])*10+(Math.random()-0.5)*3;out[i]=zc>800&&zc<4000?Math.round(zc):0;}   // Kinect v1: nothing closer than 80 cm
     n++;bc.postMessage({depth:out,w:W,h:H,n});setTimeout(frame,40);}
   frame();
 }
@@ -329,6 +330,7 @@ function updateCornerUI(){const names=['front-left','front-right','back-left','b
   const corners=cornersTmp.map(p=>SBX.rayPlane(cam,CFG.plane,p[0],p[1]));if(corners.some(c=>!c)){$('cornerMsg').textContent='A corner is off the base plane. Start the corners over.';return;}
   const bf=SBX.boxFrame(CFG.plane,corners);
   $('cornerMsg').innerHTML=`Box measures <b>${bf.LX.toFixed(1)} × ${bf.LY.toFixed(1)} cm</b>. Save to use it.`;$('saveBox').disabled=false;}
+function rainZoneNote(){const el=$('rainZone');if(el)el.innerHTML='Hold a hand anywhere over the sand and it rains straight below it. This works even when the hand is too close for the Kinect to measure (about 80 cm from the camera).';}
 function setupRange(id,fmt,fn){const el=$(id),out=$(id+'o');const u=()=>{const v=parseFloat(el.value);fn(v);if(out)out.textContent=fmt(v);};el.addEventListener('input',u);u();return u;}
 setupRange('elevMin',v=>v+' cm',v=>CFG.filter.elevMin=v);setupRange('elevMax',v=>'+'+v+' cm',v=>CFG.filter.elevMax=v);
 $('saveBox').addEventListener('click',async()=>{const corners=cornersTmp.map(p=>SBX.rayPlane(cam,CFG.plane,p[0],p[1]));const bf=SBX.boxFrame(CFG.plane,corners);
@@ -426,7 +428,8 @@ function renderStats(){const s=projector.stats,el=$('stats');
     <dt>Camera input</dt><dd>${s.depthFps.toFixed(0)} frames/s · ${(s.valid*100).toFixed(0)} % of pixels on the sand · filter ${s.filterMs.toFixed(0)} ms</dd>
     <dt>Box</dt><dd>${s.box[0].toFixed(0)} × ${s.box[1].toFixed(0)} cm · water grid ${s.grid[0]} × ${s.grid[1]}</dd>
     <dt>Water</dt><dd>${s.water.toFixed(2)} L · ${s.steps} steps/frame</dd>
-    <dt>Rain clouds</dt><dd>${s.rain} hand${s.rain===1?'':'s'} over the sand</dd>`;}
+    <dt>Rain clouds</dt><dd>${s.rain?`${s.rain} hand${s.rain===1?'':'s'} over the sand`+(s.handH>-1e8?`, ${s.handH.toFixed(0)} cm up`:'')+(s.tooClose?' (too close to measure; still raining)':''):'no hands over the sand'}</dd>`;
+  rainZoneNote();}
 
 /* ---------------- Projector window ---------------- */
 $('openProj').addEventListener('click',async()=>{

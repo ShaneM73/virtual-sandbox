@@ -457,20 +457,24 @@ function dryAll(){   // water surface = sand surface everywhere
 
 /* ---------------- FrameFilter + RainMaker worker ---------------- */
 function filterWorker(){
-  let C,N,ring,cnt,sum,sumsq,valid,K,slot=0,frames=0;
+  let C,N,ring,cnt,sum,sumsq,valid,K,age,slot=0,frames=0;
   onmessage=e=>{const m=e.data;
-    if(m.type==='init'){C=m.cfg;const w=C.camera.w,h=C.camera.h;N=w*h;ring=new Uint16Array(N*C.filter.slots);cnt=new Uint16Array(N);sum=new Float64Array(N);sumsq=new Float64Array(N);valid=new Float32Array(N);
+    if(m.type==='init'){C=m.cfg;const w=C.camera.w,h=C.camera.h;N=w*h;ring=new Uint16Array(N*C.filter.slots);cnt=new Uint16Array(N);sum=new Float64Array(N);sumsq=new Float64Array(N);valid=new Float32Array(N);age=new Uint8Array(N);
       K=new Float32Array(N);const n=C.plane.n;for(let y=0;y<h;y++)for(let x=0;x<w;x++){K[y*w+x]=(n[0]*(x+0.5-C.camera.cx)/C.camera.fx+n[1]*(y+0.5-C.camera.cy)/C.camera.fy+n[2])*0.1;}slot=0;return;}
     if(m.type==='filter'){Object.assign(C.filter,m.filter);Object.assign(C.rain,m.rain);return;}
     if(m.type!=='frame'||!C)return;
     const t0=performance.now(),D=m.depth,F=C.filter,d=C.plane.d,lo=F.elevMin,hi=F.elevMax,slots=F.slots,minS=F.minSamples,mv=F.maxVariance,hy=F.hysteresis;
+    const FG=C.rain.above*10,HOLD=90;   // mm above the known sand that counts as an object; frames (~3 s) before it may become sand
     const base=slot*N;let nValid=0;
     for(let i=0;i<N;i++){
-      const v=D[i];
-      if(v){const e=v*K[i]+d;
+      const v=D[i],f=valid[i];
+      // something that suddenly sits above the known sand (a hand) is kept out of the terrain for ~3 s;
+      // sand that was really piled up there is accepted once it has stayed that long
+      const fg=v&&f&&f-v>FG;age[i]=fg?Math.min(255,age[i]+1):0;
+      if(v&&!(fg&&age[i]<HOLD)){const e=v*K[i]+d;
         if(e>=lo&&e<=hi){const old=ring[base+i];ring[base+i]=v;cnt[i]++;sum[i]+=v;sumsq[i]+=v*v;if(old){cnt[i]--;sum[i]-=old;sumsq[i]-=old*old;}}}
       const c=cnt[i];
-      if(c>=minS&&sumsq[i]*c<=mv*c*c+sum[i]*sum[i]){const f=sum[i]/c;if(Math.abs(f-valid[i])>=hy)valid[i]=f;}
+      if(c>=minS&&sumsq[i]*c<=mv*c*c+sum[i]*sum[i]){const fv=sum[i]/c;if(Math.abs(fv-valid[i])>=hy)valid[i]=fv;}
       if(valid[i])nValid++;
     }
     slot=(slot+1)%slots;frames++;
@@ -483,27 +487,35 @@ function filterWorker(){
         for(let y=0;y<h;y++){const r=y*w;for(let x=0;x<w;x++){const i=r+x,c=tmp[i];if(!c){out[i]=0;continue;}let s=2*c,n=2;
           if(y>0&&tmp[i-w]){s+=tmp[i-w];n++;}if(y<h-1&&tmp[i+w]){s+=tmp[i+w];n++;}out[i]=s/n;}}}}
     for(let i=0;i<N;i++)out[i]*=0.1;   // mm → cm
-    // RainMaker: objects held above the sand become rain clouds
-    const rain=[];
-    if(C.rain.enabled&&C.box){const bw=w>>2,bh=h>>2,mask=new Uint8Array(bw*bh),rlo=hi+C.rain.above,rhi=rlo+C.rain.height;
-      for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const i=(y*4+2)*w+x*4+2,v=D[i];if(v){const e=v*K[i]+d;if(e>=rlo&&e<=rhi)mask[y*bw+x]=1;}}
-      const lab=new Int32Array(bw*bh),blobs=[],stack=[];
-      for(let s0=0;s0<bw*bh;s0++){if(!mask[s0]||lab[s0])continue;const id=blobs.length+1;let area=0,sx=0,sy=0,sz=0;stack.push(s0);lab[s0]=id;
-        while(stack.length){const s=stack.pop(),x=s%bw,y=(s/bw)|0,i=(y*4+2)*w+x*4+2,z=D[i]*0.1;area+=(4*z/C.camera.fx)*(4*z/C.camera.fy);
-          sx+=(x*4+2.5-C.camera.cx)/C.camera.fx*z;sy+=(y*4+2.5-C.camera.cy)/C.camera.fy*z;sz+=z;
-          const nb=[x>0?s-1:-1,x<bw-1?s+1:-1,y>0?s-bw:-1,y<bh-1?s+bw:-1];for(const t of nb)if(t>=0&&mask[t]&&!lab[t]){lab[t]=id;stack.push(t);}}
-        let cells=0;for(let k=0;k<bw*bh;k++)if(lab[k]===id)cells++;
-        if(cells>=C.rain.minArea)blobs.push({area,P:[sx/cells,sy/cells,sz/cells]});else blobs.push(null);}
-      const M=C.box.M;for(const b of blobs.filter(Boolean).sort((a,b)=>b.area-a.area).slice(0,4)){const p=b.P;
-        rain.push([M[0]*p[0]+M[4]*p[1]+M[8]*p[2]+M[12],M[1]*p[0]+M[5]*p[1]+M[9]*p[2]+M[13],Math.max(3,Math.sqrt(b.area/Math.PI))]);}}
-    postMessage({type:'filtered',depth:out,rain,valid:nValid/N,ms:performance.now()-t0},[out.buffer]);
+    // RainMaker: a hand anywhere above the sand makes rain below it. Two cues, on a 4-pixel grid:
+    //  1 = seen at least FG above the sand underneath it;
+    //  2 = no depth reading over sand that is normally visible: something closer than the Kinect can measure (~80 cm)
+    const rain=[];let handH=-1e9,tooClose=false;
+    if(C.rain.enabled&&C.box){const bw=w>>2,bh=h>>2,mask=new Uint8Array(bw*bh),cam=C.camera;
+      for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const i=(y*4+2)*w+x*4+2,v=D[i],f=valid[i];if(!f)continue;
+        if(v){if(f-v>FG)mask[y*bw+x]=1;}else mask[y*bw+x]=2;}
+      const lab=new Uint8Array(bw*bh),blobs=[],stack=[],M=C.box.M,n=C.plane.n;
+      for(let s0=0;s0<bw*bh;s0++){if(!mask[s0]||lab[s0])continue;let cells=0,seen=0,area=0,ax=0,ay=0,az=0,sx=0,sy=0,sz=0,eh=0;stack.push(s0);lab[s0]=1;
+        while(stack.length){const s=stack.pop(),x=s%bw,y=(s/bw)|0,i=(y*4+2)*w+x*4+2,isSeen=mask[s]===1,z=(isSeen?D[i]:valid[i])*0.1;
+          const px=(x*4+2.5-cam.cx)/cam.fx*z,py=(y*4+2.5-cam.cy)/cam.fy*z;cells++;area+=(4*z/cam.fx)*(4*z/cam.fy);ax+=px;ay+=py;az+=z;
+          if(isSeen){seen++;sx+=px;sy+=py;sz+=z;eh+=n[0]*px+n[1]*py+n[2]*z+d;}
+          if(x>0&&mask[s-1]&&!lab[s-1]){lab[s-1]=1;stack.push(s-1);}if(x<bw-1&&mask[s+1]&&!lab[s+1]){lab[s+1]=1;stack.push(s+1);}
+          if(y>0&&mask[s-bw]&&!lab[s-bw]){lab[s-bw]=1;stack.push(s-bw);}if(y<bh-1&&mask[s+bw]&&!lab[s+bw]){lab[s+bw]=1;stack.push(s+bw);}}
+        // thin dropouts (shadows beside tall sand) are small; a hand is big, or at least partly seen above the sand
+        if(cells<C.rain.minArea||(seen<cells*0.15&&cells<2*C.rain.minArea))continue;
+        const P=seen>=C.rain.minArea/3?[sx/seen,sy/seen,sz/seen]:[ax/cells,ay/cells,az/cells];   // rain falls straight down from the seen hand
+        blobs.push({area,P,h:seen?eh/seen:null,close:seen<cells*0.5});}
+      for(const b of blobs.sort((a,b)=>b.area-a.area).slice(0,4)){const p=b.P;
+        if(b.h!==null&&!b.close)handH=Math.max(handH,b.h);if(b.close)tooClose=true;
+        rain.push([M[0]*p[0]+M[4]*p[1]+M[8]*p[2]+M[12],M[1]*p[0]+M[5]*p[1]+M[9]*p[2]+M[13],Math.min(12,Math.max(3,Math.sqrt(b.area/Math.PI)))]);}}
+    postMessage({type:'filtered',depth:out,rain,handH,tooClose,valid:nValid/N,ms:performance.now()-t0},[out.buffer]);
   };
 }
-let worker=null,workerBusy=false,rainDisks=[],depthFrames=0,depthFps=0,validFrac=0,filterMs=0,newDepth=null;
+let worker=null,workerBusy=false,rainDisks=[],handH=-1e9,tooClose=false,depthFrames=0,depthFps=0,validFrac=0,filterMs=0,newDepth=null;
 if(calibrated){
   worker=new Worker(URL.createObjectURL(new Blob(['('+filterWorker.toString()+')()'],{type:'text/javascript'})));
   worker.postMessage({type:'init',cfg:Object.assign({},CFG,{box:{M:Array.from(BOX.M)}})});
-  worker.onmessage=e=>{const m=e.data;if(m.type!=='filtered')return;workerBusy=false;newDepth=m.depth;rainDisks=m.rain;validFrac=m.valid;filterMs=m.ms;depthFrames++;};
+  worker.onmessage=e=>{const m=e.data;if(m.type!=='filtered')return;workerBusy=false;newDepth=m.depth;rainDisks=m.rain;handH=m.handH;tooClose=m.tooClose;validFrac=m.valid;filterMs=m.ms;depthFrames++;};
 }
 let lastFrameN=-1,depthStatus='connecting';
 SBX.openDepth((depth,w,h,n)=>{if(!worker||workerBusy||w!==CAM.w||h!==CAM.h)return;workerBusy=true;const copy=new Uint16Array(depth);worker.postMessage({type:'frame',depth:copy},[copy.buffer]);},
@@ -601,7 +613,7 @@ function frame(now){
   statTimer-=raw;depthTimer+=raw;
   if(statTimer<=0){statTimer=0.5;qReader.request(Qt[qi]);bReader.request(bathy[bi]);
     if(depthTimer>=1){depthFps=depthFrames/depthTimer;depthFrames=0;depthTimer=0;}
-    bc.postMessage({type:'stats',fps:fpsSm,steps:lastSteps,water:waterL,depthFps,valid:validFrac,filterMs,rain:rainDisks.length,depth:depthStatus,calibrated,projector:!!CFG.projector,grid:[W,H],box:[LX,LY]});
+    bc.postMessage({type:'stats',fps:fpsSm,steps:lastSteps,water:waterL,depthFps,valid:validFrac,filterMs,rain:rainDisks.length,handH,tooClose,depth:depthStatus,calibrated,projector:!!CFG.projector,grid:[W,H],box:[LX,LY]});
     const badge=$('badge');if(!CFG.projector){badge.hidden=false;badge.textContent=calibrated?'Projector not calibrated yet: showing a top-down map.':'Box not set up yet: open the control page and run the setup.';}else badge.hidden=true;}
 }
 

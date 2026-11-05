@@ -5,7 +5,7 @@
 "use strict";
 const SBX = (() => {
   const CH_CONTROL = 'sandbox-control', CH_SIM = 'sandbox-sim';
-  const KINECT = {w: 640, h: 480, fx: 571.26, fy: 571.26, cx: 320, cy: 240};   // Kinect v1 nominal depth intrinsics
+  const KINECT = {w: 640, h: 480, fx: 571.26, fy: 571.26, cx: 320, cy: 240, minRange: 80};   // Kinect v1 nominal depth intrinsics; sees nothing closer than ~80 cm
 
   /* ---------- small vector / matrix helpers (matrices are column-major Float32Array(16)) ---------- */
   const V = {
@@ -123,9 +123,9 @@ const SBX = (() => {
   function defaults() {
     return {version: 1, camera: Object.assign({}, KINECT), plane: null, corners: null, cornerPx: null, box: null, projector: null,
       filter: {slots: 30, minSamples: 10, maxVariance: 16, hysteresis: 0.5, elevMin: -15, elevMax: 20, spatial: true},
-      rain: {enabled: true, above: 4, height: 70, minArea: 30}, detail: 'standard'};
+      rain: {enabled: true, above: 3, height: 70, minArea: 30}, detail: 'standard'};
   }
-  function merge(c) { const d = defaults(); return Object.assign(d, c, {camera: Object.assign(d.camera, c.camera || {}), filter: Object.assign(d.filter, c.filter || {}), rain: Object.assign(d.rain, c.rain || {})}); }
+  function merge(c) { const d = defaults(); return Object.assign(d, c, {camera: Object.assign(d.camera, c.camera || {}), filter: Object.assign(d.filter, c.filter || {}), rain: Object.assign(d.rain, c.rain || {}, {above: d.rain.above})});   /* the rain margin always uses the current default */ }
   async function loadConfig() {
     try { const r = await fetch('/api/config', {cache: 'no-store'}); if (r.ok) { const c = await r.json(); if (c && c.version) return merge(c); } } catch (e) { }
     try { const t = localStorage.getItem('sbxConfig'); if (t) return merge(JSON.parse(t)); } catch (e) { }

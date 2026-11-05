@@ -6,7 +6,7 @@
 |---|---|
 | 🖥️ **Desktop** (Windows, any browser) | **https://shanem73.github.io/virtual-sandbox/desktop/** |
 | 🥽 **VR** (Meta Quest Browser) | **https://shanem73.github.io/virtual-sandbox/vr/** |
-| 🏖️ **Physical sandbox** (Windows 11 + Kinect v1 + projector) | Runs locally: see [`bridge/README.md`](bridge/README.md) |
+| 🏖️ **Physical sandbox** (Windows 11 + Kinect v1 + projector) | Runs locally: see [setup and calibration](#physical-sandbox-on-windows-11) |
 
 **Designer:** Prof. Xin (Shane) Miao, Missouri State University
 
@@ -37,15 +37,124 @@ The desktop and VR versions are single self-contained HTML files, with no build 
 
 ## Physical sandbox on Windows 11
 
-The `bridge/` and `physical/` folders run a **real** AR Sandbox from Windows, replacing the Linux SARndbox setup:
+Run a **real** AR Sandbox from an ordinary Windows 11 PC, with no Linux needed. A Kinect v1 reads the sand, and a projector paints the colored map, contour lines and flowing water back onto it. This replaces the Linux SARndbox installation.
 
-- **`SandboxBridge.exe`** reads the Kinect v1 through Microsoft's Kinect SDK 1.8 and serves the pages locally.
-- **The control page** walks you through the box layout and the projector calibration (the same disk method as SARndbox's `CalibrateProjector`).
-- **The projector page** runs SARndbox's depth filter, rain-under-hands, and water simulation, and paints the result onto the sand.
+```
+Kinect v1 ──USB──► SandboxBridge.exe ──localhost──► Edge / Chrome
+                   reads depth                      control page   (your monitor)
+                   serves the pages                 projector page (full screen on the projector)
+```
 
-Step-by-step guide: **[bridge/README.md](bridge/README.md)**. You can try the whole setup without hardware using `Start Simulated.bat`.
+| Part | What it does |
+|---|---|
+| [`bridge/SandboxBridge.exe`](bridge/) | Reads the Kinect through Microsoft's Kinect SDK 1.8 and serves the sandbox pages at `http://localhost:8765/`. Works offline. |
+| [`physical/`](physical/) control page | Step-by-step setup (camera, box, projector calibration), then live settings and statistics. |
+| [`physical/projector.html`](physical/projector.html) | Filters the depth, builds the terrain, runs the SARndbox water simulation, and draws the calibrated image. |
 
-## Run it
+### What you need
+
+- **Kinect for Xbox 360 or Kinect for Windows v1,** with its **power/USB adapter** (the Xbox 360 S model needs it).
+- **A projector,** connected as a second display. In Windows, open **Settings → System → Display** and choose **Extend these displays**.
+- **A Windows 11 PC** with Edge or Chrome.
+- **A sandbox** about 100 × 75 cm, filled 10–15 cm deep with light-colored sand.
+- **The Kinect and projector mounted about 1 m above the sand,** both looking down at the box.
+- **A calibration target:** a CD, or a 12 cm circle of stiff paper, taped flat onto the end of a thin stick (a ruler or chopstick).
+
+### Install (once)
+
+1. **Install the [Kinect for Windows SDK v1.8](https://www.microsoft.com/download/details.aspx?id=40278)** from Microsoft. The smaller [Kinect for Windows Runtime v1.8](https://www.microsoft.com/download/details.aspx?id=40277) is also enough.
+2. **Turn off Memory integrity (required on Windows 11).** The Kinect v1 driver dates from 2013, and Windows 11's Core isolation blocks it. Windows shows a warning and the Kinect isn't found.
+   1. Open **Windows Security → Device security → Core isolation details**.
+   2. Switch **Memory integrity** to **Off**.
+   3. **Restart the PC.** The change only takes effect after a full restart.
+
+   > ⚠️ Memory integrity is a security protection. We recommend a dedicated lab or classroom PC for the sandbox. If you turn it back on, Windows blocks the Kinect driver again.
+3. **Plug in the Kinect:** power adapter first, then USB, directly into the PC rather than a hub. In **Device Manager** it should appear under **Kinect for Windows** with no yellow warning icon.
+4. **Download this repository** (green **Code** button → **Download ZIP**) and unzip it somewhere you can write to, such as `Documents\virtual-sandbox`. Avoid `Program Files`: the bridge saves its settings next to itself.
+
+### Start the sandbox
+
+Double-click **`bridge\Start Sandbox.bat`**. A black console window opens (keep it open), and your browser opens the control page at `http://localhost:8765/physical/`.
+
+- **If SmartScreen warns about the program,** click **More info → Run anyway**. Or rebuild it yourself first with `bridge\build.bat`, which uses the C# compiler built into Windows.
+- **To try everything without hardware,** use **`bridge\Start Simulated.bat`**. It simulates both the Kinect and the projector.
+
+### First-time setup
+
+The control page has four tabs: **1 Camera → 2 Box → 3 Projector → 4 Run**. Steps 1–3 are done once; the results are saved in `bridge\sandbox-config.json`.
+
+**Step 1 — Camera.** The camera view should show the sandbox. Near things are bright and far things are dark.
+
+**Step 2 — Box**
+1. **Flatten the sand** to the level you want as sea level.
+2. Click **Capture base plane** and keep hands out of the box for about a second. You should see "Flatness" under about 1 cm.
+3. **Click the four inside corners** of the box on the camera view, in this order: **front-left, front-right, back-left, back-right**. "Front" is the side where people stand.
+4. Check the measured size, for example "100 × 75 cm", then click **Save box setup**.
+
+**Step 3 — Projector calibration**
+
+Calibration teaches the computer how a point the Kinect sees lines up with a pixel the projector draws, so the colors land exactly on the sand.
+
+1. **Open the projector window:** click **Open projector window** (top right of the control page). If it opens on your monitor, drag it onto the projector's screen. Then click **Go full screen** in that window.
+2. **Set the disk size:** on the **Projector** tab, set **Disk radius** to your target's radius (a CD is 6 cm).
+3. **Start:** click **Start calibration**. For about a second, keep the box empty while it measures the sand.
+4. **Follow the crosshair:**
+   - A white crosshair with a green circle appears on the sand.
+   - Hold the disk **flat**, so the **crosshair lands on the center of the disk**. Look at the disk: the crosshair lines are drawn across it.
+   - Hold it **still**. In the camera view, the circle around the disk turns from yellow to **green**.
+   - After about a second it **captures automatically** and the crosshair moves to the next spot.
+5. **Do two rounds:**
+   - **Spots 1–12: low.** Hold the disk about 5 cm above the sand.
+   - **Spots 13–24: high.** Hold it about 25 cm above the sand, and re-center it as you lift. The two heights let the projection follow hills and valleys.
+6. **Check the result:** after the last spot it calculates and shows an **average error**. Under about 4 px is good. The projector window restarts, and the map now sits right on the sand.
+
+| During calibration | What to do |
+|---|---|
+| **Start calibration** is grayed out | Open the projector window, and finish step 2 first. |
+| No crosshair on the sand | The projector window isn't on the projector, or isn't full screen. |
+| "No disk seen above the sand" | Hold the disk flat, facing up, a little lower. The Kinect can't see closer than about 80 cm from the camera. |
+| The circle stays yellow ("hold still") | Steady your arm, or click **Capture now** when the crosshair is centered. |
+| A spot can't be reached | Click **Skip this spot**. At least 6 spots are needed; 12 or more is better. |
+| Error above about 8 px, or colors are off | Calibrate again with the disk flatter and steadier. Make sure the Kinect and projector didn't move. |
+
+### Everyday use
+
+1. Double-click **`Start Sandbox.bat`**.
+2. Click **Open projector window**, then **Go full screen**. No recalibration is needed.
+3. **Shape the sand.** The map and contour lines follow it within about a second.
+4. **Make rain:** hold a hand anywhere over the sand and it rains straight below it, even when the hand is too close for the Kinect to measure. Hands are kept out of the terrain, so a still hand doesn't become a hill.
+5. **Run tab:**
+   - buttons to rain or drain over the whole box, remove all water, or pause the water
+   - color map, contour interval, sea level, water speed and evaporation
+   - live stats: frame rates, water volume, and hands detected
+
+**Redo calibration only when something moves:**
+
+| What changed | Redo |
+|---|---|
+| The Kinect was bumped or remounted | Steps 2 and 3 |
+| The projector moved, or its zoom, focus or resolution changed | Step 3 |
+| The box moved, or the sand level changed a lot | Step 2 |
+
+When you download a new version of this repository, copy your **`bridge\sandbox-config.json`** into the new `bridge` folder to keep your calibration.
+
+### Quick demo without projector calibration
+
+Do step 2 only, then open the projector window. It shows a live top-down map of the real sand (colors, contours, water, rain) that isn't fitted to the sand. Put it on a monitor next to the sandbox, or aim and zoom the projector by hand so the image covers the box.
+
+### Troubleshooting
+
+| Problem | What to try |
+|---|---|
+| Windows warns about **Memory integrity**, or the Kinect isn't found after the SDK install | Turn off Memory integrity, then **restart** (see Install, step 2). |
+| "The Kinect for Windows SDK 1.8 is not installed" | Install the SDK or runtime, then restart the bridge. |
+| "No Kinect is connected" | Check the power adapter. Try another USB port (no hub). Check Device Manager. |
+| The sand shimmers, or parts never appear | **Run → Camera filter and detail**: raise *Jitter filter* or *Stability limit*. |
+| Port 8765 is already in use | Run `SandboxBridge.exe --port 8766` and open `http://localhost:8766/physical/`. |
+
+More detail, command-line options, and how this maps onto the Linux SARndbox tools: **[bridge/README.md](bridge/README.md)**.
+
+## Run the desktop and VR versions
 
 ### Publish on GitHub Pages (needed for VR)
 

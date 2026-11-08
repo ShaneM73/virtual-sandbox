@@ -173,6 +173,9 @@ WebXR only works over HTTPS, and GitHub Pages provides it.
 2. Go to `https://shanem73.github.io/virtual-sandbox/vr/`. Bookmark it, or send the link to the headset from your phone with the Meta Horizon app.
 3. Press **Enter VR**. The sandbox appears on a table about a metre in front of you. If it's in the wrong place, press the right thumbstick to bring it back.
 4. **Passthrough mode** places the sandbox in your real room. Quest 2 passthrough is black and white.
+5. **Surroundings in VR** (on the page, before entering VR, or the `V` key) picks what is around you in Enter VR:
+   - **Field station:** an open wooden pergola in a grassy valley, with trees, distant hills and a sunny sky.
+   - **360° photo:** a real grassy field at sunrise.
 
 ### Run it locally
 
@@ -218,7 +221,7 @@ Works in the desktop preview of the VR page, in PC VR, and with a Bluetooth keyb
 | `I` `J` `K` `L` | Move the sandbox | `−` / `=` | Vertical exaggeration |
 | `U` / `O` | Lower / raise the sandbox | `[` / `]` | Brush size |
 | `,` / `.` | Rotate the sandbox | `Z` | Undo the last sand stroke |
-| `H` | Reset the view and the sandbox | | |
+| `H` | Reset the view and the sandbox | `V` | Switch surroundings (field station or 360° photo) |
 
 ## Features
 
@@ -288,5 +291,7 @@ Works in the desktop preview of the VR page, in PC VR, and with a Bluetooth keyb
 
 
 Based on the Augmented Reality Sandbox by Oliver Kreylos, UC Davis W.M. Keck Center for Active Visualization in the Earth Sciences (KeckCAVES). The original was supported by NSF grants 1114663 and 1135588.
+
+The 360° photo is "Spruit Sunrise" from [Poly Haven](https://polyhaven.com/a/spruit_sunrise), released as CC0 (public domain).
 
 SARndbox is free software under the GNU General Public License, version 2 or later. Because this project ports its water shaders, it carries the same license. See [`LICENSE`](LICENSE).

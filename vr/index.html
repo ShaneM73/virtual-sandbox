@@ -64,6 +64,11 @@ select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var
     <option value="pc">PC VR: 400 × 300 cells, 0.40 cm</option>
     <option value="pc-high">PC VR high: 640 × 480 cells, 0.25 cm</option>
   </select>
+  <label class="det" for="env">Surroundings in VR</label>
+  <select id="env">
+    <option value="field">Field station: open shelter in a grassy valley</option>
+    <option value="photo">360° photo: grassy field at sunrise</option>
+  </select>
   <p class="hintline">In the headset, the wrist panel shows the frame rate. Quest 2 runs at 72 fps; if it drops below about 68, pick a lower level.</p>
   <div id="details">
     <h2>Right controller</h2>
@@ -104,10 +109,11 @@ select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var
       <b>− / =</b><span>Vertical exaggeration</span>
       <b>[ / ]</b><span>Brush size</span>
       <b>Z</b><span>Undo the last sand stroke</span>
+      <b>V</b><span>Switch surroundings: field station or 360° photo</span>
     </div>
     <p class="foot">The panel above your left hand shows the current tool and water stats.
       In this preview: drag to sculpt, right-drag to orbit, scroll to zoom.
-      <br>Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University. <a href="../">About the project</a> · <a href="check.html">Headset check</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
+      <br>Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University. <a href="../">About the project</a> · <a href="check.html">Headset check</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later. 360° photo “Spruit Sunrise” from <a href="https://polyhaven.com/a/spruit_sunrise">Poly Haven</a>, CC0.</p>
   </div>
   <button class="collapse" id="collapse" aria-expanded="true">Hide instructions</button>
 </section>
@@ -471,22 +477,6 @@ void main(){vec4 w=uModel*vec4(aPos,1.0);vN=normalize(mat3(uModel)*aN);gl_Positi
 const SOLID_FS=`#version 300 es
 precision highp float;in vec3 vN;uniform vec3 uColor;uniform vec3 uLightW;uniform float uEmissive;out vec4 o;
 void main(){float d=max(dot(normalize(vN),uLightW),0.0);vec3 c=uColor*(0.45+0.6*d);o=vec4(mix(c,uColor,uEmissive),1.0);}`;
-const FLOOR_VS=`#version 300 es
-in vec2 aP;uniform mat4 uVP;uniform float uY;out vec2 vP;
-void main(){vP=aP;gl_Position=uVP*vec4(aP.x,uY,aP.y,1.0);}`;
-const FLOOR_FS=`#version 300 es
-precision highp float;in vec2 vP;out vec4 o;
-void main(){vec2 q=vP*2.0;vec2 g=abs(fract(q-0.5)-0.5)/max(fwidth(q),vec2(1e-4));float l=1.0-min(min(g.x,g.y),1.0);
-  float fade=exp(-length(vP)*0.12);vec3 c=mix(vec3(0.42,0.40,0.36),vec3(0.24,0.25,0.27),1.0-fade)+vec3(0.25,0.24,0.2)*l*fade;o=vec4(c,1.0);}`;
-const SKY_VS=`#version 300 es
-in vec3 aP;uniform mat4 uVP;uniform vec3 uEye;out vec3 vD;void main(){vD=aP;gl_Position=uVP*vec4(aP*25.0+uEye,1.0);}`;
-const SKY_FS=`#version 300 es
-precision highp float;in vec3 vD;out vec4 o;
-float hs(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}
-void main(){vec3 n=normalize(vD);float y=n.y;vec3 c=mix(vec3(0.07,0.10,0.22),vec3(0.01,0.02,0.07),clamp(y*1.6,0.0,1.0));
-  if(y<0.0)c=vec3(0.04,0.05,0.09);
-  float r=hs(floor(n*220.0));if(y>0.02&&r>0.9965)c+=vec3(0.95,0.93,0.85)*((r-0.9965)/0.0035);
-  o=vec4(c,1.0);}`;
 const PANEL_VS=`#version 300 es
 in vec2 aP;uniform mat4 uVP;uniform mat4 uModel;out vec2 vUV;
 void main(){vUV=aP*0.5+0.5;gl_Position=uVP*uModel*vec4(aP,0.0,1.0);}`;
@@ -499,7 +489,7 @@ const P={
   bupd:program(QUAD_VS,BUPD_FS),reduce:program(QUAD_VS,REDUCE_FS),sculpt:program(QUAD_VS,SCULPT_FS),slump:program(QUAD_VS,SLUMP_FS),
   feat:program(QUAD_VS,FEAT_FS),copy:program(QUAD_VS,COPY_FS),wvis:program(QUAD_VS,WVIS_FS),
   terrain:program(TERRAIN_VS,TERRAIN_FS),skirt:program(SKIRT_VS,SKIRT_FS),water3:program(WATER_VS,WATER_FS3),
-  solid:program(SOLID_VS,SOLID_FS),floor:program(FLOOR_VS,FLOOR_FS),sky:program(SKY_VS,SKY_FS),panel:program(PANEL_VS,PANEL_FS)
+  solid:program(SOLID_VS,SOLID_FS),panel:program(PANEL_VS,PANEL_FS)
 };
 
 /* ---------------- Simulation state ---------------- */
@@ -676,7 +666,7 @@ function autoPlace(pose){const m=M.mul(RIG,pose.transform.matrix),h=[m[12],m[13]
   if(place.giant){const D=LY*s/2+0.6;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=0;}
   else{const D=LY*s/2+0.35;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=h[1]-0.6+skirtBase*S.exag*s;}
   floorY=Math.min(0,h[1]-1.0);   // keep the virtual floor below the head even if the headset reports an odd floor height
-  place.yaw=Math.atan2(-f[0],-f[2]);needPlace=false;panelDirty=true;}
+  place.yaw=Math.atan2(-f[0],-f[2]);envC.x=h[0];envC.z=h[2];envC.yaw=place.yaw;needPlace=false;panelDirty=true;}
 
 /* ---------------- Geometry ---------------- */
 function gridIndices(nx,ny){const idx=new Uint32Array((nx-1)*(ny-1)*6);let k=0;
@@ -693,9 +683,146 @@ const skirtMesh=(()=>{const pts=[];
 const cubeMesh=(()=>{const v=[];const p=[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,.5,-.5],[-.5,.5,-.5],[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]];
   const F=[[0,3,2,1,[0,0,-1]],[4,5,6,7,[0,0,1]],[0,1,5,4,[0,-1,0]],[3,7,6,2,[0,1,0]],[0,4,7,3,[-1,0,0]],[1,2,6,5,[1,0,0]]];
   for(const [a,b,c,d,n] of F)for(const k of [a,b,c,a,c,d])v.push(...p[k],...n);return makeVBO(v,P.solid,[['aPos',3],['aN',3]]);})();
-const skyMesh=makeVBO((()=>{const v=[];for(const ax of [0,1,2])for(const sg of [-1,1]){const a=(ax+1)%3,b=(ax+2)%3;for(const [x,y] of [[-1,-1],[1,-1],[1,1],[-1,-1],[1,1],[-1,1]]){const q=[0,0,0];q[ax]=sg;q[a]=x;q[b]=y;v.push(q[0],q[1],q[2]);}}return v;})(),P.sky,[['aP',3]]);
-const floorMesh=makeVBO([-25,-25,25,-25,25,25,-25,-25,25,25,-25,25],P.floor,[['aP',2]]);
 const quadMesh=makeVBO([-1,-1,1,-1,1,1,-1,-1,1,1,-1,1],P.panel,[['aP',2]]);
+
+/* ---------------- Surroundings in VR: a built-in field station, or a 360° photo ---------------- */
+const ENV_LIST=['field','photo'];
+let envMode=(()=>{try{const v=localStorage.getItem('sandbox-env');if(ENV_LIST.includes(v))return v;}catch(e){}return 'field';})();
+const envC={x:0,z:0,yaw:0};                 // centre and heading of the surroundings (set when entering VR)
+const SUN_L=norm([-0.5,0.62,0.6]);           // sun in the surroundings' own frame: high, behind-left of the starting view
+function envRot(v,yaw){const c=Math.cos(yaw),s=Math.sin(yaw);return [c*v[0]+s*v[2],v[1],-s*v[0]+c*v[2]];}
+function envRng(seed){return ()=>{seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const ENV_SKY_VS=`#version 300 es
+in vec3 aP;uniform mat4 uVP;uniform vec3 uEye;out vec3 vD;void main(){vD=aP;gl_Position=uVP*vec4(aP*20.0+uEye,1.0);}`;
+const ENV_SKY_FS=`#version 300 es
+precision highp float;in vec3 vD;uniform vec3 uSun;uniform float uYaw;uniform float uTime;uniform int uPhoto;uniform sampler2D uPano;uniform sampler2D uNoise;out vec4 o;
+const vec3 HZ=vec3(0.80,0.86,0.91),ZN=vec3(0.30,0.52,0.85);
+void main(){vec3 d=normalize(vD);
+  if(uPhoto==1){float c=cos(uYaw),s=sin(uYaw);vec3 l=vec3(c*d.x-s*d.z,d.y,s*d.x+c*d.z);
+    float u=atan(l.x,-l.z)*0.15915494+0.2,v=acos(clamp(l.y,-1.0,1.0))*0.31830989;
+    o=vec4(texture(uPano,vec2(u,v)).rgb,1.0);return;}
+  float y=max(d.y,0.0);vec3 c=mix(HZ,ZN,pow(y,0.55));
+  float sd=max(dot(d,uSun),0.0);
+  c+=vec3(1.0,0.9,0.7)*(pow(sd,8.0)*0.22+pow(sd,180.0)*0.5);
+  if(d.y>0.0){vec2 p=d.xz/(d.y+0.12)*0.06+vec2(uTime*0.0015,0.0);
+    float n=texture(uNoise,p).r*0.65+texture(uNoise,p*3.1).g*0.35;
+    float cl=smoothstep(0.5,0.72,n)*smoothstep(0.0,0.2,d.y);
+    c=mix(c,mix(vec3(0.8,0.83,0.88),vec3(1.0),0.4+0.6*sd),cl*0.85);}
+  else c=HZ*0.96;
+  c=mix(c,vec3(1.0,0.98,0.92),smoothstep(0.9993,0.9997,sd));
+  o=vec4(c,1.0);}`;
+const ENV_GROUND_VS=`#version 300 es
+in vec2 aP;uniform mat4 uVP;uniform float uY;uniform vec2 uC;out vec3 vW;
+void main(){vW=vec3(aP.x+uC.x,uY,aP.y+uC.y);gl_Position=uVP*vec4(vW,1.0);}`;
+const ENV_GROUND_FS=`#version 300 es
+precision highp float;in vec3 vW;uniform vec3 uEye;uniform vec3 uSun;uniform sampler2D uNoise;uniform vec3 uPatch;out vec4 o;
+const vec3 HZ=vec3(0.80,0.86,0.91);
+void main(){vec2 p=vW.xz;float a=texture(uNoise,p*0.015).r,b=texture(uNoise,p*0.11).g,e=texture(uNoise,p*0.9).g;
+  vec3 g=mix(vec3(0.27,0.42,0.16),vec3(0.42,0.52,0.21),smoothstep(0.35,0.65,a));
+  g=mix(g,vec3(0.56,0.55,0.33),smoothstep(0.62,0.8,b)*0.6);g*=0.82+0.36*e;
+  float pd=length(p-uPatch.xy)/uPatch.z;g=mix(vec3(0.5,0.43,0.32)*(0.85+0.3*e),g,smoothstep(0.55,1.0,pd));   // worn ground around the shelter
+  vec3 c=g*(0.45+0.75*max(uSun.y,0.0));float f=1.0-exp(-length(vW-uEye)*0.011);o=vec4(mix(c,HZ,f),1.0);}`;
+const ENV_MESH_VS=`#version 300 es
+in vec3 aPos;in vec3 aN;in vec3 aCol;uniform mat4 uVP;uniform mat4 uModel;out vec3 vN;out vec3 vC;out vec3 vW;
+void main(){vec4 w=uModel*vec4(aPos,1.0);vW=w.xyz;vN=mat3(uModel)*aN;vC=aCol;gl_Position=uVP*w;}`;
+const ENV_MESH_FS=`#version 300 es
+precision highp float;in vec3 vN;in vec3 vC;in vec3 vW;uniform vec3 uSun;uniform vec3 uEye;out vec4 o;
+const vec3 HZ=vec3(0.80,0.86,0.91);
+void main(){vec3 n=normalize(vN);if(!gl_FrontFacing)n=-n;float d=max(dot(n,uSun),0.0);
+  vec3 c=vC*(0.42+0.14*n.y+0.75*d);float f=1.0-exp(-length(vW-uEye)*0.008);o=vec4(mix(c,HZ,f),1.0);}`;
+const PE={sky:program(ENV_SKY_VS,ENV_SKY_FS),ground:program(ENV_GROUND_VS,ENV_GROUND_FS),mesh:program(ENV_MESH_VS,ENV_MESH_FS)};
+
+// tileable value-noise fBm texture (R coarse, G fine) for clouds and grass
+const envNoise=(()=>{const N=256,data=new Uint8Array(N*N*4);
+  const layer=(period,seed)=>{const r=envRng(seed),g=new Float32Array(period*period).map(()=>r()),out=new Float32Array(N*N);
+    const at=(i,j)=>g[(j%period)*period+(i%period)];
+    for(let y=0;y<N;y++)for(let x=0;x<N;x++){const fx=x/N*period,fy=y/N*period,ix=Math.floor(fx),iy=Math.floor(fy),tx=fx-ix,ty=fy-iy,sx=tx*tx*(3-2*tx),sy=ty*ty*(3-2*ty);
+      out[y*N+x]=(at(ix,iy)*(1-sx)+at(ix+1,iy)*sx)*(1-sy)+(at(ix,iy+1)*(1-sx)+at(ix+1,iy+1)*sx)*sy;}return out;};
+  const fbm=(p0,seed)=>{const o=new Float32Array(N*N);let a=0.5,t=0;for(let k=0;k<5;k++){const l=layer(p0<<k,seed+k*17);for(let i=0;i<N*N;i++)o[i]+=l[i]*a;t+=a;a*=0.5;}for(let i=0;i<N*N;i++)o[i]/=t;return o;};
+  const A=fbm(4,11),B=fbm(8,57);
+  for(let i=0;i<N*N;i++){data[i*4]=A[i]*255;data[i*4+1]=B[i]*255;data[i*4+3]=255;}
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA8,N,N,0,gl.RGBA,gl.UNSIGNED_BYTE,data);gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.REPEAT);return t;})();
+
+// mesh building helpers: every vertex is position, normal, colour
+const cr3=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+function eTri(v,a,b,c,col){const n=norm(cr3(sub(b,a),sub(c,a)));v.push(...a,...n,...col,...b,...n,...col,...c,...n,...col);}
+function eQuad(v,a,b,c,d,col){eTri(v,a,b,c,col);eTri(v,a,c,d,col);}
+function eBox(v,x0,y0,z0,x1,y1,z1,col){const p=(x,y,z)=>[x?x1:x0,y?y1:y0,z?z1:z0];
+  eQuad(v,p(0,1,0),p(1,1,0),p(1,1,1),p(0,1,1),col);eQuad(v,p(0,0,0),p(0,0,1),p(1,0,1),p(1,0,0),col.map(c=>c*0.8));
+  eQuad(v,p(0,0,1),p(0,1,1),p(1,1,1),p(1,0,1),col);eQuad(v,p(0,0,0),p(1,0,0),p(1,1,0),p(0,1,0),col);
+  eQuad(v,p(0,0,0),p(0,1,0),p(0,1,1),p(0,0,1),col);eQuad(v,p(1,0,0),p(1,0,1),p(1,1,1),p(1,1,0),col);}
+const envVBO=v=>makeVBO(v,PE.mesh,[['aPos',3],['aN',3],['aCol',3]]);
+
+// distant hills: two rings of smooth ridges around the station
+function hillRing(v,r0,r1,hmin,hmax,seed){const R=envRng(seed),terms=[];
+  for(const k of [2,3,4,6,9,13,19,27])terms.push([k,R()*6.283,(0.6+R()*0.8)/Math.pow(k,0.9)]);
+  const H=(t,r)=>{let s=0,n=0;for(const [k,ph,a] of terms){s+=a*Math.sin(k*t+ph+r*0.015*k);n+=a;}return 0.5+0.5*s/n;};
+  const SEG=180,ROW=10,P=[];
+  for(let j=0;j<=ROW;j++){const u=j/ROW,r=r0+(r1-r0)*u,prof=Math.min(1,u/0.4)**1.5*(1-0.3*u);const row=[];
+    for(let i=0;i<=SEG;i++){const t=i/SEG*6.2832,h=(hmin+(hmax-hmin)*Math.pow(H(t,r),1.6))*prof;row.push([Math.sin(t)*r,h,-Math.cos(t)*r]);}P.push(row);}
+  const col=p=>{const y=p[1];let c=[0.36,0.5,0.24];const f=Math.min(1,Math.max(0,(y-2)/6));c=c.map((x,i)=>x+([0.22,0.35,0.17][i]-x)*f);
+    const rk=Math.min(1,Math.max(0,(y-hmax*0.6)/(hmax*0.3)));return c.map((x,i)=>x+([0.52,0.49,0.43][i]-x)*rk);};
+  for(let j=0;j<ROW;j++)for(let i=0;i<SEG;i++){const a=P[j][i],b=P[j][i+1],c=P[j+1][i+1],d=P[j+1][i];
+    const cc=col([(a[0]+c[0])/2,(a[1]+b[1]+c[1]+d[1])/4,0]);eQuad(v,a,d,c,b,cc);}}
+// trees: round broadleaf trees and conifers, kept out of the view straight ahead
+function addTrees(v,seed){const R=envRng(seed);
+  for(let n=0;n<48;n++){const ang=(R()*2-1)*Math.PI;let r=13+R()*32;if(Math.abs(ang)<0.6&&r<28)r+=16;
+    const x=Math.sin(ang)*r,z=-Math.cos(ang)*r,s=0.8+R()*0.7,trunk=[0.36,0.26,0.17];
+    const prism=(y0,y1,rad)=>{for(let k=0;k<6;k++){const a0=k/6*6.2832,a1=(k+1)/6*6.2832;
+      eQuad(v,[x+Math.cos(a0)*rad,y0,z+Math.sin(a0)*rad],[x+Math.cos(a1)*rad,y0,z+Math.sin(a1)*rad],[x+Math.cos(a1)*rad,y1,z+Math.sin(a1)*rad],[x+Math.cos(a0)*rad,y1,z+Math.sin(a0)*rad],trunk);}};
+    if(R()<0.6){const th=(1.5+R()*0.8)*s,cr=(1.6+R()*1.0)*s;prism(0,th+cr*0.5,0.16*s);
+      const g=[[0.22,0.38,0.14],[0.3,0.45,0.17],[0.36,0.47,0.19]][Math.floor(R()*3)];
+      const t=(1+Math.sqrt(5))/2,I=[[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm);
+      const F=[[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+      const cy=th+cr*0.85,jit=d=>0.86+0.24*(Math.abs(Math.sin(d[0]*91.7+d[1]*47.3+d[2]*23.1+n*7.7))%1),
+        P=d=>{const k=jit(d)*cr;return [x+d[0]*k,cy+d[1]*k*0.82,z+d[2]*k];},mid=(a,b)=>norm([(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2]);
+      for(const [i,j,k] of F){const a=I[i],b=I[j],c=I[k],ab=mid(a,b),bc=mid(b,c),ca=mid(c,a);
+        for(const [p,q,w] of [[a,ab,ca],[ab,b,bc],[ca,bc,c],[ab,bc,ca]]){const sh=0.9+0.2*R();eTri(v,P(p),P(q),P(w),g.map(c=>c*sh));}}}
+    else{prism(0,0.8*s,0.13*s);const g=[0.16,0.3,0.15];
+      for(const [y0,h,rad] of [[0.6,1.7,1.3],[1.6,1.5,1.0],[2.5,1.4,0.7]]){const yb=y0*s*1.2,ya=(y0+h)*s*1.2,rr=rad*s;
+        for(let k=0;k<8;k++){const a0=k/8*6.2832,a1=(k+1)/8*6.2832,p0=[x+Math.cos(a0)*rr,yb,z+Math.sin(a0)*rr],p1=[x+Math.cos(a1)*rr,yb,z+Math.sin(a1)*rr];
+          eTri(v,p0,p1,[x,ya,z],g.map(c=>c*(0.9+0.2*R())));eTri(v,p1,p0,[x,yb,z],g.map(c=>c*0.7));}}}}}
+const envWorld=(()=>{const v=[];hillRing(v,48,88,3,16,7);hillRing(v,115,175,10,38,23);addTrees(v,91);return envVBO(v);})();
+// open wooden shelter around the table (table frame: +z is where you stand)
+const envDeck=(()=>{const v=[],R=envRng(5);for(let z=-1.4;z<1.79;z+=0.2){const c=0.9+0.2*R();eBox(v,-1.8,0,z,1.8,0.05,z+0.188,[0.56*c,0.43*c,0.29*c]);}return envVBO(v);})();
+const envFrame=(()=>{const v=[],wood=[0.47,0.34,0.21];
+  for(const x of [-1.65,1.65])for(const z of [-1.25,1.65])eBox(v,x-0.06,0.05,z-0.06,x+0.06,2.8,z+0.06,wood);
+  for(const z of [-1.25,1.65])eBox(v,-1.8,2.73,z-0.07,1.8,2.85,z+0.07,wood);
+  for(let x=-1.75;x<=1.76;x+=0.35)eBox(v,x-0.035,2.85,-1.45,x+0.035,2.99,1.85,wood);   // open pergola rafters: sky shows through
+  for(let z=-1.2;z<=1.61;z+=0.47)eBox(v,-1.9,2.99,z-0.02,1.9,3.03,z+0.02,[0.5,0.37,0.24]);
+  return envVBO(v);})();
+const envSkyMesh=makeVBO((()=>{const v=[];for(const ax of [0,1,2])for(const sg of [-1,1]){const a=(ax+1)%3,b=(ax+2)%3;for(const [x,y] of [[-1,-1],[1,-1],[1,1],[-1,-1],[1,1],[-1,1]]){const q=[0,0,0];q[ax]=sg;q[a]=x;q[b]=y;v.push(q[0],q[1],q[2]);}}return v;})(),PE.sky,[['aP',3]]);
+const envGround=makeVBO([-200,-200,200,-200,200,200,-200,-200,200,200,-200,200],PE.ground,[['aP',2]]);
+
+// 360° photo: "Spruit Sunrise" from Poly Haven (CC0), loaded only when chosen
+let panoTex=null,panoReady=false,panoLoading=false;
+function loadPano(){if(panoLoading)return;panoLoading=true;const im=new Image();
+  im.onload=()=>{panoTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,panoTex);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,false);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);panoReady=true;};
+  im.onerror=()=>{panoLoading=false;setStatus('Could not load the 360° photo, so the field station is shown instead.',true);setEnv('field');};
+  im.src='field-360.jpg';}
+function setEnv(m){if(!ENV_LIST.includes(m))m='field';envMode=m;try{localStorage.setItem('sandbox-env',m);}catch(e){}
+  if(m==='photo')loadPano();const sel=$('env');if(sel&&sel.value!==m)sel.value=m;panelDirty=true;}
+function drawEnv(VP,eye){
+  const photo=envMode==='photo'&&panoReady,sun=envRot(SUN_L,envC.yaw);
+  gl.disable(gl.CULL_FACE);gl.depthMask(false);
+  use(PE.sky,{uVP:VP,uEye:eye,uSun:sun,uYaw:envC.yaw,uTime:performance.now()/1000,uPhoto:photo?1:0,uPano:photo?panoTex:envNoise,uNoise:envNoise});
+  gl.bindVertexArray(envSkyMesh.vao);gl.drawArrays(gl.TRIANGLES,0,36);gl.depthMask(true);
+  if(!photo){
+    use(PE.ground,{uVP:VP,uY:floorY,uC:[envC.x,envC.z],uEye:eye,uSun:sun,uNoise:envNoise,uPatch:[place.x,place.z,place.giant?0.01:3.2]});
+    gl.bindVertexArray(envGround.vao);gl.drawArrays(gl.TRIANGLES,0,6);
+    use(PE.mesh,{uVP:VP,uModel:M.chain(M.T(envC.x,floorY,envC.z),M.Ry(envC.yaw)),uSun:sun,uEye:eye});
+    gl.bindVertexArray(envWorld.vao);gl.drawArrays(gl.TRIANGLES,0,envWorld.n);}
+  if(!place.giant){const R=M.chain(M.T(place.x,floorY,place.z),M.Ry(place.yaw));
+    use(PE.mesh,{uVP:VP,uModel:R,uSun:sun,uEye:eye});gl.bindVertexArray(envDeck.vao);gl.drawArrays(gl.TRIANGLES,0,envDeck.n);
+    if(!photo&&xrSession){gl.bindVertexArray(envFrame.vao);gl.drawArrays(gl.TRIANGLES,0,envFrame.n);}}   // the pergola only in the headset: it would hide the desktop preview
+  gl.bindVertexArray(null);}
+
 
 /* ---------------- Wrist panel (canvas texture) ---------------- */
 const pc=document.createElement('canvas');pc.width=800;pc.height=560;const px=pc.getContext('2d');
@@ -793,8 +920,7 @@ function cube(VP,model,color,em){use(P.solid,{uVP:VP,uModel:model,uColor:color,u
 function drawScene(VP,eye,ctrls,ar,panelModel){
   gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.disable(gl.BLEND);gl.depthMask(true);
   const Mdl=modelMatrix(),MVP=M.mul(VP,Mdl),eyeS=xf(M.inv(Mdl),eye,1),E=S.exag,s=sandScale();
-  if(!ar)safe('sky',()=>{gl.disable(gl.CULL_FACE);gl.depthMask(false);use(P.sky,{uVP:VP,uEye:eye});gl.bindVertexArray(skyMesh.vao);gl.drawArrays(gl.TRIANGLES,0,36);gl.depthMask(true);});
-  if(!ar)safe('floor',()=>{use(P.floor,{uVP:VP,uY:floorY});gl.bindVertexArray(floorMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);});
+  if(!ar)safe('surroundings',()=>drawEnv(VP,eye));
   if(!ar&&!place.giant)safe('table',()=>{const w=LX*s+0.12,d=LY*s+0.12,top=place.base,legH=Math.max(top-0.05-floorY,0.01);const R=M.mul(M.T(place.x,0,place.z),M.Ry(place.yaw));
     cube(VP,M.chain(R,M.T(0,top-0.025,0),M.S(w,0.05,d)),[0.36,0.27,0.19]);
     for(const sx of [-1,1])for(const sz of [-1,1])cube(VP,M.chain(R,M.T(sx*(w/2-0.06),floorY+legH/2,sz*(d/2-0.06)),M.S(0.05,legH,0.05)),[0.25,0.19,0.14]);});
@@ -910,14 +1036,14 @@ async function startXR(mode){
     if(isVR&&typeof XRWebGLBinding!=='undefined'&&'createProjectionLayer' in XRWebGLBinding.prototype){
       try{xrBinding=new XRWebGLBinding(s,gl);
         xrProj=xrBinding.createProjectionLayer({colorFormat:gl.RGBA8,depthFormat:gl.DEPTH_COMPONENT24,scaleFactor:1.0});
-        s.updateRenderState({layers:[xrProj],depthNear:0.02,depthFar:60});
+        s.updateRenderState({layers:[xrProj],depthNear:0.02,depthFar:400});
         if('fixedFoveation' in xrProj)xrProj.fixedFoveation=0.5;xrLayerKind='projection layer';}
       catch(e){console.warn('projection layer not available, using XRWebGLLayer',e);xrBinding=null;xrProj=null;}
     }
     if(!xrProj){
       const layer=new XRWebGLLayer(s,gl,{antialias:true,alpha:true});
       if('fixedFoveation' in layer) layer.fixedFoveation=0.5;
-      s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:60});xrLayerKind='WebGL layer';
+      s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:400});xrLayerKind='WebGL layer';
     }
     noPose=0;
     try{xrRef=await s.requestReferenceSpace('local-floor');xrRefKind='local-floor';}
@@ -968,7 +1094,7 @@ function previewFrame(now){
   const shift=(innerWidth>900&&!$('card').hidden)?-0.45*(place.giant?3:1):0;   // keep the table clear of the instruction card
   const tgt=[place.x+shift*Math.cos(cam.yaw)+camPan[0],place.base+0.12+camPan[1],place.z-shift*Math.sin(cam.yaw)+camPan[2]],cp=Math.cos(cam.pitch);
   const eye=[tgt[0]+cam.dist*cp*Math.sin(cam.yaw),tgt[1]+cam.dist*Math.sin(cam.pitch),tgt[2]+cam.dist*cp*Math.cos(cam.yaw)];
-  const VP=M.mul(M.persp(50*Math.PI/180,canvas.width/canvas.height,0.02,80),M.look(eye,tgt,[0,1,0]));VPprev=VP;
+  const VP=M.mul(M.persp(50*Math.PI/180,canvas.width/canvas.height,0.02,400),M.look(eye,tgt,[0,1,0]));VPprev=VP;
   let tool=null;
   if(mouse){const iv=M.inv(VP),r=canvas.getBoundingClientRect();const nx=(mouse[0]-r.left)/r.width*2-1,ny=1-(mouse[1]-r.top)/r.height*2;
     const un=z=>{const w=iv[3]*nx+iv[7]*ny+iv[11]*z+iv[15];return [(iv[0]*nx+iv[4]*ny+iv[8]*z+iv[12])/w,(iv[1]*nx+iv[5]*ny+iv[9]*z+iv[13])/w,(iv[2]*nx+iv[6]*ny+iv[10]*z+iv[14])/w];};
@@ -1010,6 +1136,7 @@ window.addEventListener('keydown',e=>{
   else if(c==='KeyC')S.contours=!S.contours;
   else if(c==='KeyM'){S.cmap=cycle(CMAP_ORDER,S.cmap,1);buildCmap();}
   else if(c==='KeyZ')undo();
+  else if(c==='KeyV')setEnv(envMode==='field'?'photo':'field');
   else if(c==='KeyH')resetView();
   else if(c==='Minus'||c==='NumpadSubtract')S.exag=Math.max(1,S.exag-0.25);
   else if(c==='Equal'||c==='NumpadAdd')S.exag=Math.min(4,S.exag+0.25);
@@ -1023,6 +1150,7 @@ $('collapse').addEventListener('click',()=>{const d=$('details');d.hidden=!d.hid
 /* ---------------- Start ---------------- */
 buildCmap();loadPreset('river');syncMaxStep();
 if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{panelDirty=true;});
+setEnv(envMode);$('env').addEventListener('change',e=>{setEnv(e.target.value);e.target.blur();});
 requestAnimationFrame(previewFrame);
 (async()=>{
   if(!window.isSecureContext){setStatus('WebXR needs HTTPS. Host this page on GitHub Pages (or another HTTPS server) and open it in the Meta Quest Browser.',true);return;}

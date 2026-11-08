@@ -472,12 +472,12 @@ const SOLID_FS=`#version 300 es
 precision highp float;in vec3 vN;uniform vec3 uColor;uniform vec3 uLightW;uniform float uEmissive;out vec4 o;
 void main(){float d=max(dot(normalize(vN),uLightW),0.0);vec3 c=uColor*(0.45+0.6*d);o=vec4(mix(c,uColor,uEmissive),1.0);}`;
 const FLOOR_VS=`#version 300 es
-in vec2 aP;uniform mat4 uVP;out vec2 vP;
-void main(){vP=aP;gl_Position=uVP*vec4(aP.x,0.0,aP.y,1.0);}`;
+in vec2 aP;uniform mat4 uVP;uniform float uY;out vec2 vP;
+void main(){vP=aP;gl_Position=uVP*vec4(aP.x,uY,aP.y,1.0);}`;
 const FLOOR_FS=`#version 300 es
 precision highp float;in vec2 vP;out vec4 o;
 void main(){vec2 q=vP*2.0;vec2 g=abs(fract(q-0.5)-0.5)/max(fwidth(q),vec2(1e-4));float l=1.0-min(min(g.x,g.y),1.0);
-  float fade=exp(-length(vP)*0.16);vec3 c=vec3(0.2,0.22,0.25)+vec3(0.2,0.22,0.24)*l*fade;o=vec4(c,1.0);}`;
+  float fade=exp(-length(vP)*0.12);vec3 c=mix(vec3(0.42,0.40,0.36),vec3(0.24,0.25,0.27),1.0-fade)+vec3(0.25,0.24,0.2)*l*fade;o=vec4(c,1.0);}`;
 const PANEL_VS=`#version 300 es
 in vec2 aP;uniform mat4 uVP;uniform mat4 uModel;out vec2 vUV;
 void main(){vUV=aP*0.5+0.5;gl_Position=uVP*uModel*vec4(aP,0.0,1.0);}`;
@@ -661,11 +661,12 @@ function setGiant(on){const keep=place.giant===on;place.giant=on;if(!keep)Object
 function resetPlace(){Object.assign(place,place.giant?GIANT:TABLETOP);if(xrSession)needPlace=true;}
 /* In the headset, put the sandbox in front of the user at a height that suits them, standing or seated:
    the sand's sea level about 60 cm below the eyes, the front edge 35 cm ahead, facing them. */
-let needPlace=false;
+let needPlace=false,floorY=0;
 function autoPlace(pose){const m=M.mul(RIG,pose.transform.matrix),h=[m[12],m[13],m[14]];let f=[-m[8],0,-m[10]];const l=Math.hypot(f[0],f[2])||1;f=[f[0]/l,0,f[2]/l];
   const s=sandScale();
   if(place.giant){const D=LY*s/2+0.6;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=0;}
-  else{const D=LY*s/2+0.35;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=Math.max(0.45,h[1]-0.6)+skirtBase*S.exag*s;}
+  else{const D=LY*s/2+0.35;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=h[1]-0.6+skirtBase*S.exag*s;}
+  floorY=Math.min(0,h[1]-1.0);   // keep the virtual floor below the head even if the headset reports an odd floor height
   place.yaw=Math.atan2(-f[0],-f[2]);needPlace=false;panelDirty=true;}
 
 /* ---------------- Geometry ---------------- */
@@ -782,29 +783,50 @@ function cube(VP,model,color,em){use(P.solid,{uVP:VP,uModel:model,uColor:color,u
 function drawScene(VP,eye,ctrls,ar,panelModel){
   gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.disable(gl.BLEND);gl.depthMask(true);
   const Mdl=modelMatrix(),MVP=M.mul(VP,Mdl),eyeS=xf(M.inv(Mdl),eye,1),E=S.exag,s=sandScale();
-  if(!ar){use(P.floor,{uVP:VP});gl.bindVertexArray(floorMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);}
-  if(!ar&&!place.giant){const w=LX*s+0.12,d=LY*s+0.12,top=place.base;const R=M.mul(M.T(place.x,0,place.z),M.Ry(place.yaw));
+  if(!ar)safe('floor',()=>{use(P.floor,{uVP:VP,uY:floorY});gl.bindVertexArray(floorMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);});
+  if(!ar&&!place.giant)safe('table',()=>{const w=LX*s+0.12,d=LY*s+0.12,top=place.base,legH=Math.max(top-0.05-floorY,0.01);const R=M.mul(M.T(place.x,0,place.z),M.Ry(place.yaw));
     cube(VP,M.chain(R,M.T(0,top-0.025,0),M.S(w,0.05,d)),[0.36,0.27,0.19]);
-    for(const sx of [-1,1])for(const sz of [-1,1])cube(VP,M.chain(R,M.T(sx*(w/2-0.06),(top-0.05)/2,sz*(d/2-0.06)),M.S(0.05,Math.max(top-0.05,0.01),0.05)),[0.25,0.19,0.14]);}
+    for(const sx of [-1,1])for(const sz of [-1,1])cube(VP,M.chain(R,M.T(sx*(w/2-0.06),floorY+legH/2,sz*(d/2-0.06)),M.S(0.05,legH,0.05)),[0.25,0.19,0.14]);});
+  gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.disable(gl.BLEND);gl.depthMask(true);
   const ring=(hover&&['raise','dig','smooth','flatten','rain','drain','spring','sink','erase'].includes(S.tool))?[hover.sand[0],hover.sand[1],(S.tool==='spring'||S.tool==='sink')?Math.max(1,S.brushR*0.45):S.brushR,1]:[0,0,0,0];
   const cm=CMAPS[S.cmap];
+  safe('sand',()=>{
   use(P.terrain,{uBathy:bathy[bi],uBSize:[BW,BH],uQSize:[W,H],uCs:CS,uExag:E,uMVP:MVP,uWV:wvis,uFeat:feat[fi],uCmap:cmapTex,uDem:demTex,
     uCmapRange:cm.range,uSea:S.sea,uSandMode:S.cmap==='sand'?1:0,uContours:S.contours,uCInt:S.cint,uShade:S.shade,uLight:LS,
     uWaterProj:0,uWColor:S.wcolor,uWOp:S.wop,uSpeedMax:15,uDemOn:0,uDemScale:0.15,uShowFeat:S.showFeat,uShowWet:0,uRing:ring});
   gl.bindVertexArray(terrainMesh.vao);gl.drawElements(gl.TRIANGLES,terrainMesh.n,gl.UNSIGNED_INT,0);
-  use(P.skirt,{uBathy:bathy[bi],uQ:Qt[qi],uQSize:[W,H],uBSize:[BW,BH],uCs:CS,uExag:E,uMVP:MVP,uLight:LS,uBase:skirtBase});gl.bindVertexArray(skirtMesh.vao);gl.drawArrays(gl.TRIANGLE_STRIP,0,skirtMesh.n);
+  use(P.skirt,{uBathy:bathy[bi],uQ:Qt[qi],uQSize:[W,H],uBSize:[BW,BH],uCs:CS,uExag:E,uMVP:MVP,uLight:LS,uBase:skirtBase});gl.bindVertexArray(skirtMesh.vao);gl.drawArrays(gl.TRIANGLE_STRIP,0,skirtMesh.n);});
   // controllers and pointer ray
-  for(const c of ctrls){
+  safe('controllers',()=>{for(const c of ctrls){
     if(c.grip)cube(VP,M.mul(c.grip,M.S(0.035,0.035,0.11)),c.hand==='left'?[0.35,0.62,0.85]:[0.85,0.7,0.42]);
     if(c.ray&&c.hand==='right'){const len=hover?hover.dist:1.5;cube(VP,M.chain(c.ray,M.T(0,0,-len/2),M.S(0.0025,0.0025,len)),hover?[1,0.93,0.75]:[0.6,0.62,0.66],1);}
-  }
+  }});
   gl.enable(gl.BLEND);gl.blendFunc(gl.ONE,gl.ONE_MINUS_SRC_ALPHA);gl.depthMask(false);
-  use(P.water3,{uBathy:bathy[bi],uQ:Qt[qi],uQSize:[W,H],uBSize:[BW,BH],uCs:CS,uExag:E,uMVP:MVP,uEps:SIM.uEps,uEye:eyeS,uLight:LS,uWColor:S.wcolor,uSpeedMax:15,uWOp:S.wop});
-  gl.bindVertexArray(waterMesh.vao);gl.drawElements(gl.TRIANGLES,waterMesh.n,gl.UNSIGNED_INT,0);
+  safe('water',()=>{use(P.water3,{uBathy:bathy[bi],uQ:Qt[qi],uQSize:[W,H],uBSize:[BW,BH],uCs:CS,uExag:E,uMVP:MVP,uEps:SIM.uEps,uEye:eyeS,uLight:LS,uWColor:S.wcolor,uSpeedMax:15,uWOp:S.wop});
+  gl.bindVertexArray(waterMesh.vao);gl.drawElements(gl.TRIANGLES,waterMesh.n,gl.UNSIGNED_INT,0);});
   gl.depthMask(true);
-  if(panelModel){use(P.panel,{uVP:VP,uModel:panelModel,uTex:panelTex});gl.bindVertexArray(quadMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);}
+  if(panelModel)safe('panel',()=>{use(P.panel,{uVP:VP,uModel:panelModel,uTex:panelTex});gl.bindVertexArray(quadMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);});
+  if(hudModel)safe('info card',()=>{gl.disable(gl.DEPTH_TEST);use(P.panel,{uVP:VP,uModel:hudModel,uTex:hudTex});gl.bindVertexArray(quadMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);gl.enable(gl.DEPTH_TEST);});
   gl.disable(gl.BLEND);gl.bindVertexArray(null);
 }
+/* ---------------- Error capture and the in-headset info card ---------------- */
+let lastError='',hudModel=null,hudUntil=0,hudTimer=0;
+function noteError(where,e){const msg=where+': '+(e&&e.message||e);if(msg!==lastError){lastError=msg;console.error(msg,e);setStatus('Problem in the headset: '+msg+'. Please send a screenshot of this message.',true);}}
+function safe(where,fn){try{fn();}catch(e){noteError(where,e);}}
+const hc=document.createElement('canvas');hc.width=900;hc.height=420;const hx=hc.getContext('2d');
+const hudTex=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,hudTex);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+function drawHud(head){hx.clearRect(0,0,hc.width,hc.height);
+  hx.fillStyle='rgba(20,24,28,0.94)';hx.beginPath();hx.roundRect?hx.roundRect(4,4,hc.width-8,hc.height-8,24):hx.rect(4,4,hc.width-8,hc.height-8);hx.fill();
+  hx.textBaseline='top';hx.fillStyle='#e9e4d8';hx.font=`700 40px ${UI}`;hx.fillText('AR SANDBOX VR',36,30);
+  hx.font=`500 30px ${UI}`;hx.fillStyle='#c9c3b6';
+  const lines=lastError?['Something went wrong:',lastError.slice(0,60),lastError.slice(60,120),'Take a photo of this card (Meta button → Camera).']:
+    ['The sandbox is on a table in front of you.','Right stick click brings it back. Grip moves it.',
+     `Head height ${head[1].toFixed(2)} m · table top ${place.base.toFixed(2)} m · floor ${floorY.toFixed(2)} m`];
+  lines.forEach((l,i)=>{hx.fillStyle=lastError&&i>0&&i<3?'#e2785f':'#c9c3b6';hx.fillText(l,36,100+i*56);});
+  hx.font=`500 24px ${MONO}`;hx.fillStyle='#98a1aa';hx.fillText(`${W}×${H} grid · ${fpsSm.toFixed(0)} fps`,36,hc.height-56);
+  gl.bindTexture(gl.TEXTURE_2D,hudTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,hc);}
 
 /* ---------------- Controller input (xr-standard gamepad mapping) ---------------- */
 const ctl={left:{prev:[],sx:0},right:{prev:[],sx:0}};let grab=null,hapticT=0;
@@ -850,7 +872,7 @@ async function startXR(mode){
     if('fixedFoveation' in layer) layer.fixedFoveation=0.5;
     s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:60});
     xrRef=await s.requestReferenceSpace('local-floor');
-    xrSession=s;xrAR=mode==='immersive-ar';xrLast=null;RIG=M.I();needPlace=true;
+    xrSession=s;xrAR=mode==='immersive-ar';xrLast=null;RIG=M.I();needPlace=true;hudUntil=performance.now()+8000;hudTimer=0;
     s.addEventListener('end',()=>{xrSession=null;setStatus('Session ended. Press Enter VR to go back in.');requestAnimationFrame(previewFrame);});
     s.requestAnimationFrame(xrFrame);setStatus('Running in the headset.');
   }catch(e){setStatus('Could not start the session: '+e.message,true);}
@@ -869,14 +891,17 @@ function xrFrame(t,frame){
   const ctrls=[];
   for(const src of s.inputSources){const rp=src.targetRaySpace?frame.getPose(src.targetRaySpace,xrRef):null,gp=src.gripSpace?frame.getPose(src.gripSpace,xrRef):null;
     ctrls.push({hand:src.handedness,ray:rp?M.mul(RIG,rp.transform.matrix):null,grip:gp?M.mul(RIG,gp.transform.matrix):null,gp:src.gamepad||null});}
-  const tool=handleControllers(ctrls,dt);
-  stepWorld(dt,tool);
+  let tool=null;safe('controllers',()=>{tool=handleControllers(ctrls,dt);});
+  safe('simulation',()=>stepWorld(dt,tool));
+  {const hm=M.mul(RIG,pose.transform.matrix);
+    if(performance.now()<hudUntil||lastError){hudTimer-=dt;if(hudTimer<=0){hudTimer=0.5;safe('info card',()=>drawHud([hm[12],hm[13],hm[14]]));}
+      hudModel=M.chain(hm,M.T(0,-0.08,-1.1),M.S(0.42,0.196,1));}else hudModel=null;}
   const left=ctrls.find(c=>c.hand==='left'&&c.grip);
   const panelModel=left?M.chain(left.grip,M.T(0,0.1,-0.02),M.Rx(-0.45),M.S(0.13,0.091,1)):null;
   const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
-  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.17,0.19,0.23,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.36,0.45,0.56,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
   for(const v of pose.views){const vp=layer.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);
-    const p=v.transform.position,iRig=M.inv(RIG);drawScene(M.chain(v.projectionMatrix,v.transform.inverse.matrix,iRig),xf(RIG,[p.x,p.y,p.z],1),ctrls,xrAR,panelModel);}
+    const p=v.transform.position,iRig=M.inv(RIG);safe('drawing',()=>drawScene(M.chain(v.projectionMatrix,v.transform.inverse.matrix,iRig),xf(RIG,[p.x,p.y,p.z],1),ctrls,xrAR,panelModel));}
 }
 
 /* ---------------- Desktop preview (no headset) ---------------- */
@@ -957,7 +982,7 @@ requestAnimationFrame(previewFrame);
   $('enterVR').addEventListener('click',()=>startXR('immersive-vr'));
   $('enterAR').addEventListener('click',()=>startXR('immersive-ar'));
 })();
-window.__sandbox={_t:{M,xrFrame,modelMatrix,LX,LY,setSession:v=>{xrSession=v;},replace(){needPlace=true;RIG=M.I();}},S,place,handleControllers,stepWorld,loadPreset,get hover(){return hover;},get water(){return waterL;},get steps(){return lastSteps;}};
+window.__sandbox={_t:{M,xrFrame,modelMatrix,LX,LY,setSession:v=>{xrSession=v;},replace(){needPlace=true;RIG=M.I();},showInfo(){hudUntil=performance.now()+8000;hudTimer=0;},lastError:()=>lastError},S,place,handleControllers,stepWorld,loadPreset,get hover(){return hover;},get water(){return waterL;},get steps(){return lastSteps;}};
 }
 // paint the page first, then do the heavy start-up work
 requestAnimationFrame(()=>setTimeout(()=>{try{boot();}catch(e){const st=document.getElementById('status');if(st&&!st.classList.contains('err')){st.className='status err';st.textContent='Could not start: '+e.message;}console.error(e);}},30));

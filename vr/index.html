@@ -477,7 +477,7 @@ void main(){vP=aP;gl_Position=uVP*vec4(aP.x,0.0,aP.y,1.0);}`;
 const FLOOR_FS=`#version 300 es
 precision highp float;in vec2 vP;out vec4 o;
 void main(){vec2 q=vP*2.0;vec2 g=abs(fract(q-0.5)-0.5)/max(fwidth(q),vec2(1e-4));float l=1.0-min(min(g.x,g.y),1.0);
-  float fade=exp(-length(vP)*0.16);vec3 c=vec3(0.115,0.13,0.15)+vec3(0.11,0.13,0.15)*l*fade;o=vec4(c,1.0);}`;
+  float fade=exp(-length(vP)*0.16);vec3 c=vec3(0.2,0.22,0.25)+vec3(0.2,0.22,0.24)*l*fade;o=vec4(c,1.0);}`;
 const PANEL_VS=`#version 300 es
 in vec2 aP;uniform mat4 uVP;uniform mat4 uModel;out vec2 vUV;
 void main(){vUV=aP*0.5+0.5;gl_Position=uVP*uModel*vec4(aP,0.0,1.0);}`;
@@ -505,7 +505,7 @@ const SIM={uQSize:[W,H],uBSize:[BW,BH],uCell:[CS,CS],uTheta:1.3,uG:9.81,uEps:0.0
 const bCPU=new Float32Array(BW*BH*4),qCPU=new Float32Array(W*H*4),one=new Float32Array(4);
 
 const S={tool:'raise',paused:false,brushR:8,brushS:1,slump:true,repose:34,rainRate:0.25,speed:1,atten:1/128,evap:0,
-  dry:1,springRate:3,sinkRate:2,ks:0,psi:3,cmap:'sarndbox',contours:true,cint:0.75,shade:true,sea:0,wcolor:0,wop:2,exag:1.5,
+  dry:1,springRate:3,sinkRate:2,ks:0,psi:3,cmap:'sarndbox',contours:true,cint:0.75,shade:true,sea:0,wcolor:0,wop:2,exag:1.0,
   showFeat:true,holdRain:false,holdDrain:false,preset:'river'};
 const TOOLS=[['raise','Add sand'],['dig','Dig'],['smooth','Smooth'],['flatten','Flatten'],['rain','Rain here'],['drain','Drain here'],['spring','Spring'],['sink','Sinkhole'],['erase','Erase spring/sink']];
 const PRESETS=[['river','River valley with lake'],['hills','Rolling hills'],['watersheds','Two watersheds'],['island','Volcanic island'],['dam','Dam and reservoir'],['karst','Ozark karst'],['flat','Flat sand']];
@@ -657,8 +657,16 @@ const place={...TABLETOP,giant:false};
 function sandScale(){return place.giant?0.05:0.01;}   // tabletop: real size (1 cm = 1 cm); giant: 1 cm = 5 cm
 function modelMatrix(){const s=sandScale(),y=place.base-skirtBase*S.exag*s;
   return M.chain(M.T(place.x,y,place.z),M.Ry(place.yaw),M.S(s,s,s),ZUP,M.T(-LX/2,-LY/2,0));}
-function setGiant(on){const keep=place.giant===on;place.giant=on;if(!keep)Object.assign(place,on?GIANT:TABLETOP);panelDirty=true;}
-function resetPlace(){Object.assign(place,place.giant?GIANT:TABLETOP);}
+function setGiant(on){const keep=place.giant===on;place.giant=on;if(!keep)Object.assign(place,on?GIANT:TABLETOP);if(xrSession)needPlace=true;panelDirty=true;}
+function resetPlace(){Object.assign(place,place.giant?GIANT:TABLETOP);if(xrSession)needPlace=true;}
+/* In the headset, put the sandbox in front of the user at a height that suits them, standing or seated:
+   the sand's sea level about 60 cm below the eyes, the front edge 35 cm ahead, facing them. */
+let needPlace=false;
+function autoPlace(pose){const m=M.mul(RIG,pose.transform.matrix),h=[m[12],m[13],m[14]];let f=[-m[8],0,-m[10]];const l=Math.hypot(f[0],f[2])||1;f=[f[0]/l,0,f[2]/l];
+  const s=sandScale();
+  if(place.giant){const D=LY*s/2+0.6;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=0;}
+  else{const D=LY*s/2+0.35;place.x=h[0]+f[0]*D;place.z=h[2]+f[2]*D;place.base=Math.max(0.45,h[1]-0.6)+skirtBase*S.exag*s;}
+  place.yaw=Math.atan2(-f[0],-f[2]);needPlace=false;panelDirty=true;}
 
 /* ---------------- Geometry ---------------- */
 function gridIndices(nx,ny){const idx=new Uint32Array((nx-1)*(ny-1)*6);let k=0;
@@ -816,7 +824,7 @@ function handleControllers(ctrls,dt){
       if(edge(3)){RIG=M.I();resetPlace();pulse(gp,0.3,30);}
       if(pr(1)&&c.grip){const g=c.grip,p=[g[12],g[13],g[14]],yaw=Math.atan2(g[8],g[10]);
         if(!grab)grab={p,yaw,start:{...place}};
-        place.x=grab.start.x+p[0]-grab.p[0];place.z=grab.start.z+p[2]-grab.p[2];place.base=Math.min(2,Math.max(place.giant?-2:0.2,grab.start.base+p[1]-grab.p[1]));
+        place.x=grab.start.x+p[0]-grab.p[0];place.z=grab.start.z+p[2]-grab.p[2];place.base=Math.min(2.5,Math.max(-1.5,grab.start.base+p[1]-grab.p[1]));   // down to the floor and below
         place.yaw=grab.start.yaw+(yaw-grab.yaw);} else grab=null;
       hapticT-=dt;if(tool&&tool.active&&hover&&hapticT<=0){pulse(gp,0.12,25);hapticT=0.1;}
     } else {
@@ -842,7 +850,7 @@ async function startXR(mode){
     if('fixedFoveation' in layer) layer.fixedFoveation=0.5;
     s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:60});
     xrRef=await s.requestReferenceSpace('local-floor');
-    xrSession=s;xrAR=mode==='immersive-ar';xrLast=null;
+    xrSession=s;xrAR=mode==='immersive-ar';xrLast=null;RIG=M.I();needPlace=true;
     s.addEventListener('end',()=>{xrSession=null;setStatus('Session ended. Press Enter VR to go back in.');requestAnimationFrame(previewFrame);});
     s.requestAnimationFrame(xrFrame);setStatus('Running in the headset.');
   }catch(e){setStatus('Could not start the session: '+e.message,true);}
@@ -851,6 +859,7 @@ function xrFrame(t,frame){
   const s=frame.session;s.requestAnimationFrame(xrFrame);
   const raw=xrLast==null?1/72:(t-xrLast)/1000,dt=Math.min(raw,0.05);xrLast=t;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;
   const pose=frame.getViewerPose(xrRef);if(!pose)return;
+  if(needPlace)autoPlace(pose);
   // keyboard locomotion: RIG places the tracked play space in the room
   {const a=keyAxes(),hm=M.mul(RIG,pose.transform.matrix),hp=[hm[12],hm[13],hm[14]];const fwd=norm([-hm[8],0,-hm[10]]),right=[-fwd[2],0,fwd[0]];
     const sp=(place.giant?3:0.9)*a.fast*dt;
@@ -865,7 +874,7 @@ function xrFrame(t,frame){
   const left=ctrls.find(c=>c.hand==='left'&&c.grip);
   const panelModel=left?M.chain(left.grip,M.T(0,0.1,-0.02),M.Rx(-0.45),M.S(0.13,0.091,1)):null;
   const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
-  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.07,0.08,0.1,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.17,0.19,0.23,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
   for(const v of pose.views){const vp=layer.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);
     const p=v.transform.position,iRig=M.inv(RIG);drawScene(M.chain(v.projectionMatrix,v.transform.inverse.matrix,iRig),xf(RIG,[p.x,p.y,p.z],1),ctrls,xrAR,panelModel);}
 }
@@ -909,7 +918,7 @@ function keyAxes(){const h=c=>keys.has(c)?1:0;
     bf:h('KeyI')-h('KeyK'),br:h('KeyL')-h('KeyJ'),bu:h('KeyO')-h('KeyU'),t:h('KeyQ')-h('KeyE'),fast:(h('ShiftLeft')||h('ShiftRight'))?2.5:1};}
 function moveSandbox(a,fwd,right,dt){if(!a.bf&&!a.br&&!a.bu)return;const v=0.5*(place.giant?4:1)*a.fast*dt;
   place.x+=(fwd[0]*a.bf+right[0]*a.br)*v;place.z+=(fwd[2]*a.bf+right[2]*a.br)*v;
-  place.base=Math.min(2,Math.max(place.giant?-2:0.2,place.base+a.bu*0.3*a.fast*dt));}
+  place.base=Math.min(2.5,Math.max(-1.5,place.base+a.bu*0.3*a.fast*dt));}
 function resetView(){RIG=M.I();camPan=[0,0,0];cam.yaw=0.3;cam.pitch=0.7;cam.dist=place.giant?9:3.1;resetPlace();}
 const NAV_KEYS=new Set(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','PageUp','PageDown','Space']);
 window.addEventListener('keydown',e=>{
@@ -948,7 +957,7 @@ requestAnimationFrame(previewFrame);
   $('enterVR').addEventListener('click',()=>startXR('immersive-vr'));
   $('enterAR').addEventListener('click',()=>startXR('immersive-ar'));
 })();
-window.__sandbox={S,place,handleControllers,stepWorld,loadPreset,get hover(){return hover;},get water(){return waterL;},get steps(){return lastSteps;}};
+window.__sandbox={_t:{M,xrFrame,modelMatrix,LX,LY,setSession:v=>{xrSession=v;},replace(){needPlace=true;RIG=M.I();}},S,place,handleControllers,stepWorld,loadPreset,get hover(){return hover;},get water(){return waterL;},get steps(){return lastSteps;}};
 }
 // paint the page first, then do the heavy start-up work
 requestAnimationFrame(()=>setTimeout(()=>{try{boot();}catch(e){const st=document.getElementById('status');if(st&&!st.classList.contains('err')){st.className='status err';st.textContent='Could not start: '+e.message;}console.error(e);}},30));

@@ -107,7 +107,7 @@ select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var
     </div>
     <p class="foot">The panel above your left hand shows the current tool and water stats.
       In this preview: drag to sculpt, right-drag to orbit, scroll to zoom.
-      <br>Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University. <a href="../">About the project</a> · <a href="check.html">Headset check</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
+      <br>Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University. <a href="../">About the project</a> · <a href="check.html">Headset check</a> · <a href="test.html">VR step test</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
   </div>
   <button class="collapse" id="collapse" aria-expanded="true">Hide instructions</button>
 </section>
@@ -478,6 +478,15 @@ const FLOOR_FS=`#version 300 es
 precision highp float;in vec2 vP;out vec4 o;
 void main(){vec2 q=vP*2.0;vec2 g=abs(fract(q-0.5)-0.5)/max(fwidth(q),vec2(1e-4));float l=1.0-min(min(g.x,g.y),1.0);
   float fade=exp(-length(vP)*0.12);vec3 c=mix(vec3(0.42,0.40,0.36),vec3(0.24,0.25,0.27),1.0-fade)+vec3(0.25,0.24,0.2)*l*fade;o=vec4(c,1.0);}`;
+const SKY_VS=`#version 300 es
+in vec3 aP;uniform mat4 uVP;uniform vec3 uEye;out vec3 vD;void main(){vD=aP;gl_Position=uVP*vec4(aP*25.0+uEye,1.0);}`;
+const SKY_FS=`#version 300 es
+precision highp float;in vec3 vD;out vec4 o;
+float hs(vec3 p){return fract(sin(dot(p,vec3(12.9898,78.233,37.719)))*43758.5453);}
+void main(){vec3 n=normalize(vD);float y=n.y;vec3 c=mix(vec3(0.07,0.10,0.22),vec3(0.01,0.02,0.07),clamp(y*1.6,0.0,1.0));
+  if(y<0.0)c=vec3(0.04,0.05,0.09);
+  float r=hs(floor(n*220.0));if(y>0.02&&r>0.9965)c+=vec3(0.95,0.93,0.85)*((r-0.9965)/0.0035);
+  o=vec4(c,1.0);}`;
 const PANEL_VS=`#version 300 es
 in vec2 aP;uniform mat4 uVP;uniform mat4 uModel;out vec2 vUV;
 void main(){vUV=aP*0.5+0.5;gl_Position=uVP*uModel*vec4(aP,0.0,1.0);}`;
@@ -490,7 +499,7 @@ const P={
   bupd:program(QUAD_VS,BUPD_FS),reduce:program(QUAD_VS,REDUCE_FS),sculpt:program(QUAD_VS,SCULPT_FS),slump:program(QUAD_VS,SLUMP_FS),
   feat:program(QUAD_VS,FEAT_FS),copy:program(QUAD_VS,COPY_FS),wvis:program(QUAD_VS,WVIS_FS),
   terrain:program(TERRAIN_VS,TERRAIN_FS),skirt:program(SKIRT_VS,SKIRT_FS),water3:program(WATER_VS,WATER_FS3),
-  solid:program(SOLID_VS,SOLID_FS),floor:program(FLOOR_VS,FLOOR_FS),panel:program(PANEL_VS,PANEL_FS)
+  solid:program(SOLID_VS,SOLID_FS),floor:program(FLOOR_VS,FLOOR_FS),sky:program(SKY_VS,SKY_FS),panel:program(PANEL_VS,PANEL_FS)
 };
 
 /* ---------------- Simulation state ---------------- */
@@ -684,6 +693,7 @@ const skirtMesh=(()=>{const pts=[];
 const cubeMesh=(()=>{const v=[];const p=[[-.5,-.5,-.5],[.5,-.5,-.5],[.5,.5,-.5],[-.5,.5,-.5],[-.5,-.5,.5],[.5,-.5,.5],[.5,.5,.5],[-.5,.5,.5]];
   const F=[[0,3,2,1,[0,0,-1]],[4,5,6,7,[0,0,1]],[0,1,5,4,[0,-1,0]],[3,7,6,2,[0,1,0]],[0,4,7,3,[-1,0,0]],[1,2,6,5,[1,0,0]]];
   for(const [a,b,c,d,n] of F)for(const k of [a,b,c,a,c,d])v.push(...p[k],...n);return makeVBO(v,P.solid,[['aPos',3],['aN',3]]);})();
+const skyMesh=makeVBO((()=>{const v=[];for(const ax of [0,1,2])for(const sg of [-1,1]){const a=(ax+1)%3,b=(ax+2)%3;for(const [x,y] of [[-1,-1],[1,-1],[1,1],[-1,-1],[1,1],[-1,1]]){const q=[0,0,0];q[ax]=sg;q[a]=x;q[b]=y;v.push(q[0],q[1],q[2]);}}return v;})(),P.sky,[['aP',3]]);
 const floorMesh=makeVBO([-25,-25,25,-25,25,25,-25,-25,25,25,-25,25],P.floor,[['aP',2]]);
 const quadMesh=makeVBO([-1,-1,1,-1,1,1,-1,-1,1,1,-1,1],P.panel,[['aP',2]]);
 
@@ -783,6 +793,7 @@ function cube(VP,model,color,em){use(P.solid,{uVP:VP,uModel:model,uColor:color,u
 function drawScene(VP,eye,ctrls,ar,panelModel){
   gl.enable(gl.DEPTH_TEST);gl.depthFunc(gl.LEQUAL);gl.disable(gl.BLEND);gl.depthMask(true);
   const Mdl=modelMatrix(),MVP=M.mul(VP,Mdl),eyeS=xf(M.inv(Mdl),eye,1),E=S.exag,s=sandScale();
+  if(!ar)safe('sky',()=>{gl.disable(gl.CULL_FACE);gl.depthMask(false);use(P.sky,{uVP:VP,uEye:eye});gl.bindVertexArray(skyMesh.vao);gl.drawArrays(gl.TRIANGLES,0,36);gl.depthMask(true);});
   if(!ar)safe('floor',()=>{use(P.floor,{uVP:VP,uY:floorY});gl.bindVertexArray(floorMesh.vao);gl.drawArrays(gl.TRIANGLES,0,6);});
   if(!ar&&!place.giant)safe('table',()=>{const w=LX*s+0.12,d=LY*s+0.12,top=place.base,legH=Math.max(top-0.05-floorY,0.01);const R=M.mul(M.T(place.x,0,place.z),M.Ry(place.yaw));
     cube(VP,M.chain(R,M.T(0,top-0.025,0),M.S(w,0.05,d)),[0.36,0.27,0.19]);
@@ -864,14 +875,20 @@ function handleControllers(ctrls,dt){
 
 /* ---------------- WebXR session ---------------- */
 let xrSession=null,xrRef=null,xrAR=false,xrLast=null;
+let xrRefKind='local-floor',noPose=0;
+// 'local' has its origin at the head; shift it so the floor is about 1.6 m below the starting head position
+async function localSpace(s){const r=await s.requestReferenceSpace('local');return r.getOffsetReferenceSpace(new XRRigidTransform({x:0,y:-1.6,z:0}));}
+async function switchToLocal(s){try{xrRef=await localSpace(s);xrRefKind='local';needPlace=true;noPose=0;}catch(e){noteError('tracking',e);}}
 async function startXR(mode){
   try{
-    const s=await navigator.xr.requestSession(mode,{requiredFeatures:['local-floor']});
+    const s=await navigator.xr.requestSession(mode,{optionalFeatures:['local-floor']});
     await gl.makeXRCompatible();
     const layer=new XRWebGLLayer(s,gl,{antialias:true,alpha:mode==='immersive-ar'});
     if('fixedFoveation' in layer) layer.fixedFoveation=0.5;
     s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:60});
-    xrRef=await s.requestReferenceSpace('local-floor');
+    noPose=0;
+    try{xrRef=await s.requestReferenceSpace('local-floor');xrRefKind='local-floor';}
+    catch(e){xrRef=await localSpace(s);xrRefKind='local';}
     xrSession=s;xrAR=mode==='immersive-ar';xrLast=null;RIG=M.I();needPlace=true;hudUntil=performance.now()+8000;hudTimer=0;
     s.addEventListener('end',()=>{xrSession=null;setStatus('Session ended. Press Enter VR to go back in.');requestAnimationFrame(previewFrame);});
     s.requestAnimationFrame(xrFrame);setStatus('Running in the headset.');
@@ -880,7 +897,11 @@ async function startXR(mode){
 function xrFrame(t,frame){
   const s=frame.session;s.requestAnimationFrame(xrFrame);
   const raw=xrLast==null?1/72:(t-xrLast)/1000,dt=Math.min(raw,0.05);xrLast=t;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;
-  const pose=frame.getViewerPose(xrRef);if(!pose)return;
+  const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
+  gl.disable(gl.SCISSOR_TEST);gl.viewport(0,0,layer.framebufferWidth,layer.framebufferHeight);
+  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.05,0.07,0.17,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);   // night sky shows even before tracking starts
+  const pose=frame.getViewerPose(xrRef);
+  if(!pose){noPose++;if(noPose===90&&xrRefKind==='local-floor')switchToLocal(s);return;}
   if(needPlace)autoPlace(pose);
   // keyboard locomotion: RIG places the tracked play space in the room
   {const a=keyAxes(),hm=M.mul(RIG,pose.transform.matrix),hp=[hm[12],hm[13],hm[14]];const fwd=norm([-hm[8],0,-hm[10]]),right=[-fwd[2],0,fwd[0]];
@@ -898,8 +919,7 @@ function xrFrame(t,frame){
       hudModel=M.chain(hm,M.T(0,-0.08,-1.1),M.S(0.42,0.196,1));}else hudModel=null;}
   const left=ctrls.find(c=>c.hand==='left'&&c.grip);
   const panelModel=left?M.chain(left.grip,M.T(0,0.1,-0.02),M.Rx(-0.45),M.S(0.13,0.091,1)):null;
-  const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
-  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.36,0.45,0.56,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
   for(const v of pose.views){const vp=layer.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);
     const p=v.transform.position,iRig=M.inv(RIG);safe('drawing',()=>drawScene(M.chain(v.projectionMatrix,v.transform.inverse.matrix,iRig),xf(RIG,[p.x,p.y,p.z],1),ctrls,xrAR,panelModel));}
 }

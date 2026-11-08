@@ -37,6 +37,9 @@ a{color:var(--blue)}
     <div class="test"><div><b>Test 2 · Sky, stars and objects</b><small>Starry night sky, a gray grid floor, a spinning colored cube and a message card in front of you.</small></div><button id="t2" disabled>Start</button></div>
     <div class="test"><div><b>Test 3 · Passthrough</b><small>For comparison: the same cube and card over your real room.</small></div><button id="t3" disabled>Start</button></div>
   </div>
+  <h2 style="font-size:20px;margin:22px 0 6px">Test 4 · Color tests</h2>
+  <p>Each one fills your view with one bright color for 8 seconds and changes one setting. Write down which colors you actually saw.</p>
+  <div class="tests" id="variants"></div>
   <details><summary>Settings for tests 1 and 2 (leave as they are unless asked)</summary>
     <div class="opts">
       <label><input type="checkbox" id="oAA" checked> Antialiasing</label>
@@ -196,6 +199,46 @@ function finish(){
   addResult(r.name,ok?true:(r.frames?null:false),d.join('<br>'));
   msg('Done. Did you see what the test described? Run the next test, then send a screenshot of this page.');
 }
+/* ---------- Test 4: one bright colour per variant, each with its own fresh WebGL context ---------- */
+const VARIANTS=[
+  {id:'A',name:'Red',col:[0.85,0.1,0.1],desc:'Plainest possible VR: default layer, simple tracking',ctx:{xrCompatible:true},layer:{},feat:{},space:'local'},
+  {id:'B',name:'Green',col:[0.1,0.8,0.2],desc:'Transparent layer, as in passthrough',ctx:{xrCompatible:true,alpha:true},layer:{alpha:true},feat:{},space:'local'},
+  {id:'C',name:'Yellow',col:[0.95,0.85,0.1],desc:'Antialiasing off',ctx:{xrCompatible:true,antialias:false},layer:{antialias:false,alpha:false},feat:{},space:'local'},
+  {id:'D',name:'Blue',col:[0.15,0.4,1.0],desc:'Floor tracking (local-floor) required',ctx:{xrCompatible:true},layer:{},feat:{requiredFeatures:['local-floor']},space:'local-floor'},
+  {id:'E',name:'White',col:[0.95,0.95,0.95],desc:'Exactly the sandbox settings',ctx:{antialias:true,alpha:true,premultipliedAlpha:true},late:true,layer:{antialias:true,alpha:false},fov:0.5,depth:[0.02,60],feat:{requiredFeatures:['local-floor']},space:'local-floor'},
+  {id:'F',name:'Orange',col:[1.0,0.5,0.1],desc:'Sandbox settings, but transparent layer',ctx:{antialias:true,alpha:true,premultipliedAlpha:true},late:true,layer:{antialias:true,alpha:true},fov:0.5,depth:[0.02,60],feat:{requiredFeatures:['local-floor']},space:'local-floor'}];
+$('variants').innerHTML=VARIANTS.map(v=>`<div class="test"><div><b><span style="display:inline-block;width:16px;height:16px;border-radius:3px;vertical-align:-2px;margin-right:8px;background:rgb(${v.col.map(c=>Math.round(c*255)).join(',')})"></span>${v.id} · ${v.name}</b><small>${v.desc}</small></div><button data-v="${v.id}" disabled>Start</button></div>`).join('');
+async function startVariant(v){
+  const name=`Test 4${v.id} · ${v.name}`;const r={frames:0,noPose:0,errors:[],fb:''};let s=null,g=null,cv=null,t0=0,timer=null;
+  try{
+    cv=document.createElement('canvas');cv.width=cv.height=16;
+    if(v.late){g=cv.getContext('webgl2',v.ctx);}           // like the sandbox: context first, made XR-compatible later
+    s=await navigator.xr.requestSession('immersive-vr',v.feat);
+    if(!v.late)g=cv.getContext('webgl2',v.ctx);
+    if(!g)throw new Error('no WebGL2 context');
+    await g.makeXRCompatible();
+    const layer=new XRWebGLLayer(s,g,v.layer);
+    if(v.fov&&'fixedFoveation' in layer)layer.fixedFoveation=v.fov;
+    const rs={baseLayer:layer};if(v.depth){rs.depthNear=v.depth[0];rs.depthFar=v.depth[1];}
+    s.updateRenderState(rs);
+    const ref=await s.requestReferenceSpace(v.space);
+    r.fb=`${layer.framebufferWidth}×${layer.framebufferHeight}`;
+    const end=()=>{try{s.end();}catch(e){}};
+    s.addEventListener('selectstart',end);
+    s.addEventListener('end',()=>{clearTimeout(timer);const secs=((performance.now()-t0)/1000).toFixed(1);
+      addResult(name,r.frames>10&&!r.errors.length?true:(r.frames?null:false),[`${r.frames} frames in ${secs} s`,`${r.noPose} frames without head tracking`,`layer ${r.fb}`,v.desc].concat(r.errors.map(e=>'<span class="bad">'+e+'</span>')).join('<br>'));
+      msg('Done. Which color did you see? Try the next one.');
+      const lc=g.getExtension('WEBGL_lose_context');if(lc)lc.loseContext();});
+    t0=performance.now();timer=setTimeout(end,8000);
+    const fr=(t,f)=>{s.requestAnimationFrame(fr);
+      try{const L=s.renderState.baseLayer;g.bindFramebuffer(g.FRAMEBUFFER,L.framebuffer);g.viewport(0,0,L.framebufferWidth,L.framebufferHeight);
+        g.clearColor(v.col[0],v.col[1],v.col[2],1);g.clear(g.COLOR_BUFFER_BIT|g.DEPTH_BUFFER_BIT);r.frames++;
+        if(!f.getViewerPose(ref))r.noPose++;
+        const e=g.getError();if(e&&r.errors.length<3)r.errors.push('WebGL error 0x'+e.toString(16));}
+      catch(e){if(r.errors.length<3)r.errors.push(e.message);}};
+    s.requestAnimationFrame(fr);msg('Running '+name+'…');
+  }catch(e){addResult(name,false,'Could not start: '+e.message+'<br>'+v.desc);if(s)try{s.end();}catch(_){}}
+}
 (async()=>{
   if(!window.isSecureContext){msg('<span class="bad">This page must be opened over https.</span>');return;}
   if(!navigator.xr){msg('<span class="bad">WebXR is not available. Use the Meta Quest Browser.</span>');return;}
@@ -204,6 +247,7 @@ function finish(){
   $('t1').disabled=$('t2').disabled=!vr;$('t3').disabled=!ar;
   msg(vr?'Ready. Start with Test 1.':'<span class="bad">This browser says immersive VR is not supported.</span>');
   for(const i of [1,2,3])$('t'+i).onclick=()=>start(i);
+  document.querySelectorAll('[data-v]').forEach(b=>{b.disabled=!vr;b.onclick=()=>startVariant(VARIANTS.find(v=>v.id===b.dataset.v));});
 })();
 </script>
 </body>

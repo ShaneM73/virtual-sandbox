@@ -875,31 +875,64 @@ function handleControllers(ctrls,dt){
 
 /* ---------------- WebXR session ---------------- */
 let xrSession=null,xrRef=null,xrAR=false,xrLast=null;
+let xrBinding=null,xrProj=null,xrLayerKind='';const xrFB=gl.createFramebuffer();let xrDepthRB=null,xrDepthKey='';
+// Bind the right render target for one eye and return its viewport (projection layer or XRWebGLLayer)
+function beginView(s,v){
+  if(!xrProj){const L=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,L.framebuffer);const vp=L.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);return vp;}
+  const sub=xrBinding.getViewSubImage(xrProj,v),arr=xrProj.textureArrayLength>1;
+  gl.bindFramebuffer(gl.FRAMEBUFFER,xrFB);
+  if(arr)gl.framebufferTextureLayer(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,sub.colorTexture,0,sub.imageIndex);
+  else gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,sub.colorTexture,0);
+  if(sub.depthStencilTexture){
+    if(arr)gl.framebufferTextureLayer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,sub.depthStencilTexture,0,sub.imageIndex);
+    else gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,sub.depthStencilTexture,0);
+  }else{const key=xrProj.textureWidth+'x'+xrProj.textureHeight;
+    if(key!==xrDepthKey){if(xrDepthRB)gl.deleteRenderbuffer(xrDepthRB);xrDepthRB=gl.createRenderbuffer();gl.bindRenderbuffer(gl.RENDERBUFFER,xrDepthRB);
+      gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,xrProj.textureWidth,xrProj.textureHeight);xrDepthKey=key;}
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,xrDepthRB);}
+  const vp=sub.viewport;gl.viewport(vp.x,vp.y,vp.width,vp.height);
+  gl.enable(gl.SCISSOR_TEST);gl.scissor(vp.x,vp.y,vp.width,vp.height);gl.depthMask(true);
+  gl.clearColor(0.05,0.07,0.17,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);gl.disable(gl.SCISSOR_TEST);
+  return vp;}
 let xrRefKind='local-floor',noPose=0;
 // 'local' has its origin at the head; shift it so the floor is about 1.6 m below the starting head position
 async function localSpace(s){const r=await s.requestReferenceSpace('local');return r.getOffsetReferenceSpace(new XRRigidTransform({x:0,y:-1.6,z:0}));}
 async function switchToLocal(s){try{xrRef=await localSpace(s);xrRefKind='local';needPlace=true;noPose=0;}catch(e){noteError('tracking',e);}}
 async function startXR(mode){
   try{
-    const s=await navigator.xr.requestSession(mode,{optionalFeatures:['local-floor']});
+    const isVR=mode==='immersive-vr';
+    // Same session setup as three.js (used by the working Visualizer2026-WebXR project):
+    // VR asks for 'layers' and draws into an XRProjectionLayer when the browser has one (Meta Quest Browser does);
+    // otherwise it uses an XRWebGLLayer with alpha:true. Passthrough keeps its original, working setup.
+    const s=await navigator.xr.requestSession(mode,{optionalFeatures:isVR?['local-floor','bounded-floor','layers']:['local-floor']});
     await gl.makeXRCompatible();
-    const layer=new XRWebGLLayer(s,gl,{antialias:true,alpha:mode==='immersive-ar'});
-    if('fixedFoveation' in layer) layer.fixedFoveation=0.5;
-    s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:60});
+    xrBinding=null;xrProj=null;xrLayerKind='';
+    if(isVR&&typeof XRWebGLBinding!=='undefined'&&'createProjectionLayer' in XRWebGLBinding.prototype){
+      try{xrBinding=new XRWebGLBinding(s,gl);
+        xrProj=xrBinding.createProjectionLayer({colorFormat:gl.RGBA8,depthFormat:gl.DEPTH_COMPONENT24,scaleFactor:1.0});
+        s.updateRenderState({layers:[xrProj],depthNear:0.02,depthFar:60});
+        if('fixedFoveation' in xrProj)xrProj.fixedFoveation=0.5;xrLayerKind='projection layer';}
+      catch(e){console.warn('projection layer not available, using XRWebGLLayer',e);xrBinding=null;xrProj=null;}
+    }
+    if(!xrProj){
+      const layer=new XRWebGLLayer(s,gl,{antialias:true,alpha:true});
+      if('fixedFoveation' in layer) layer.fixedFoveation=0.5;
+      s.updateRenderState({baseLayer:layer,depthNear:0.02,depthFar:60});xrLayerKind='WebGL layer';
+    }
     noPose=0;
     try{xrRef=await s.requestReferenceSpace('local-floor');xrRefKind='local-floor';}
     catch(e){xrRef=await localSpace(s);xrRefKind='local';}
     xrSession=s;xrAR=mode==='immersive-ar';xrLast=null;RIG=M.I();needPlace=true;hudUntil=performance.now()+8000;hudTimer=0;
-    s.addEventListener('end',()=>{xrSession=null;setStatus('Session ended. Press Enter VR to go back in.');requestAnimationFrame(previewFrame);});
-    s.requestAnimationFrame(xrFrame);setStatus('Running in the headset.');
+    s.addEventListener('end',()=>{xrSession=null;xrProj=null;xrBinding=null;gl.bindFramebuffer(gl.FRAMEBUFFER,null);setStatus('Session ended. Press Enter VR to go back in.');requestAnimationFrame(previewFrame);});
+    s.requestAnimationFrame(xrFrame);setStatus('Running in the headset ('+xrLayerKind+').');
   }catch(e){setStatus('Could not start the session: '+e.message,true);}
 }
 function xrFrame(t,frame){
   const s=frame.session;s.requestAnimationFrame(xrFrame);
   const raw=xrLast==null?1/72:(t-xrLast)/1000,dt=Math.min(raw,0.05);xrLast=t;fpsSm=fpsSm*0.95+(1/Math.max(raw,1e-3))*0.05;
-  const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
-  gl.disable(gl.SCISSOR_TEST);gl.viewport(0,0,layer.framebufferWidth,layer.framebufferHeight);
-  if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.05,0.07,0.17,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);   // night sky shows even before tracking starts
+  if(!xrProj){const layer=s.renderState.baseLayer;gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
+    gl.disable(gl.SCISSOR_TEST);gl.viewport(0,0,layer.framebufferWidth,layer.framebufferHeight);gl.depthMask(true);
+    if(xrAR)gl.clearColor(0,0,0,0);else gl.clearColor(0.05,0.07,0.17,1);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);}   // night sky shows even before tracking starts
   const pose=frame.getViewerPose(xrRef);
   if(!pose){noPose++;if(noPose===90&&xrRefKind==='local-floor')switchToLocal(s);return;}
   if(needPlace)autoPlace(pose);
@@ -919,8 +952,7 @@ function xrFrame(t,frame){
       hudModel=M.chain(hm,M.T(0,-0.08,-1.1),M.S(0.42,0.196,1));}else hudModel=null;}
   const left=ctrls.find(c=>c.hand==='left'&&c.grip);
   const panelModel=left?M.chain(left.grip,M.T(0,0.1,-0.02),M.Rx(-0.45),M.S(0.13,0.091,1)):null;
-  gl.bindFramebuffer(gl.FRAMEBUFFER,layer.framebuffer);
-  for(const v of pose.views){const vp=layer.getViewport(v);gl.viewport(vp.x,vp.y,vp.width,vp.height);
+  for(const v of pose.views){safe('eye setup',()=>beginView(s,v));
     const p=v.transform.position,iRig=M.inv(RIG);safe('drawing',()=>drawScene(M.chain(v.projectionMatrix,v.transform.inverse.matrix,iRig),xf(RIG,[p.x,p.y,p.z],1),ctrls,xrAR,panelModel));}
 }
 

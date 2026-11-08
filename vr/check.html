@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Headset Check</title>
+<style>
+:root{color-scheme:dark;--bg:#121518;--desk:#191d21;--line:#2c333b;--fg:#e9e4d8;--muted:#98a1aa;--ok:#7cc493;--bad:#e2785f;--sand:#d8b46a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:17px/1.45 "Segoe UI",system-ui,Arial,sans-serif;padding:28px max(16px,env(safe-area-inset-left,0px))}
+main{max-width:760px;margin:0 auto}
+h1{margin:0 0 6px;font-size:26px;letter-spacing:.04em;text-transform:uppercase}h1 span{color:var(--sand)}
+p{color:var(--muted);margin:0 0 16px}
+table{width:100%;border-collapse:collapse;background:var(--desk);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+td{padding:9px 12px;border-top:1px solid var(--line);vertical-align:top}tr:first-child td{border-top:0}
+td:first-child{width:36px;font-size:20px}td.v{color:var(--muted);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;word-break:break-word}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.mid{color:var(--sand)}
+.sum{margin:16px 0;font-size:19px}
+a{color:#58a9e6}
+</style>
+</head>
+<body>
+<main>
+  <h1>Headset <span>check</span></h1>
+  <p>This page tests what the VR sandbox needs. Open it in the Meta Quest Browser, then send a screenshot if something is marked red.</p>
+  <p class="sum" id="sum">Testing…</p>
+  <table id="t"></table>
+  <p style="margin-top:16px"><a href="./">Back to the VR sandbox</a> · <a href="../">Main page</a></p>
+</main>
+<script>
+"use strict";
+const rows=[];let bad=0;
+function row(ok,name,detail){rows.push([ok,name,detail]);if(ok===false)bad++;}
+function draw(){document.getElementById('t').innerHTML=rows.map(([ok,n,d])=>`<tr><td class="${ok===true?'ok':ok===false?'bad':'mid'}">${ok===true?'✓':ok===false?'✗':'•'}</td><td>${n}</td><td class="v">${d||''}</td></tr>`).join('');
+  document.getElementById('sum').innerHTML=bad?`<span class="bad">${bad} problem${bad>1?'s':''} found.</span> Send a screenshot of this page.`:'<span class="ok">Everything the VR sandbox needs is available.</span>';}
+(async()=>{
+  row(null,'Browser',navigator.userAgent);
+  row(window.isSecureContext,'Secure page (HTTPS)',location.protocol);
+  const c=document.createElement('canvas');let gl=null;
+  try{gl=c.getContext('webgl2');}catch(e){}
+  row(!!gl,'WebGL2',gl?gl.getParameter(gl.VERSION):'not available');
+  if(gl){
+    const dbg=gl.getExtension('WEBGL_debug_renderer_info');
+    row(null,'Graphics',dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):gl.getParameter(gl.RENDERER));
+    const cbf=!!gl.getExtension('EXT_color_buffer_float');row(cbf,'Float render targets (EXT_color_buffer_float)',cbf?'yes':'missing — the water simulation needs this');
+    row(null,'Max texture size',gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    const fboTest=(ifmt,type)=>{const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);gl.texImage2D(gl.TEXTURE_2D,0,ifmt,64,64,0,gl.RGBA,type,null);
+      const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+      const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;gl.bindFramebuffer(gl.FRAMEBUFFER,null);return ok;};
+    row(fboTest(gl.RGBA32F,gl.FLOAT),'Render to 32-bit float textures');
+    row(fboTest(gl.RGBA16F,gl.HALF_FLOAT),'Render to 16-bit float textures');
+    // two render targets at once, as the water solver uses
+    const sh=(type,src)=>{const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);return gl.getShaderParameter(s,gl.COMPILE_STATUS)?null:gl.getShaderInfoLog(s);};
+    const e1=sh(gl.FRAGMENT_SHADER,`#version 300 es
+precision highp float;precision highp int;precision highp sampler2D;uniform sampler2D t;uniform vec4 r[4];layout(location=0) out vec4 a;layout(location=1) out vec4 b;
+void main(){ivec2 c=ivec2(gl_FragCoord.xy);vec4 s=texelFetch(t,c,0);for(int i=0;i<4;i++)s+=r[i];a=s;b=vec4(fwidth(s.x));}`);
+    row(!e1,'Shader features (texelFetch, two outputs, uniform arrays)',e1||'compiles');
+    row(gl.getParameter(gl.MAX_DRAW_BUFFERS)>=2,'Multiple render targets',String(gl.getParameter(gl.MAX_DRAW_BUFFERS)));
+    row(!!gl.getExtension('OES_element_index_uint')||true,'32-bit mesh indices','built into WebGL2');
+  }
+  row(!!navigator.xr,'WebXR',navigator.xr?'available':'not available — use the Meta Quest Browser');
+  if(navigator.xr){
+    const vr=await navigator.xr.isSessionSupported('immersive-vr').catch(e=>'error: '+e.message);
+    row(vr===true,'Immersive VR',String(vr));
+    const ar=await navigator.xr.isSessionSupported('immersive-ar').catch(e=>'error: '+e.message);
+    row(ar===true?true:null,'Passthrough (immersive AR)',String(ar));
+  }
+  row(null,'Screen',`${screen.width}×${screen.height} @ ${devicePixelRatio}×, window ${innerWidth}×${innerHeight}`);
+  draw();
+})().catch(e=>{row(false,'Test error',e.message);draw();});
+</script>
+</body>
+</html>

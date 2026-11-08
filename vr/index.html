@@ -56,7 +56,7 @@ select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var
     <button class="primary" id="enterVR" disabled>Enter VR</button>
     <button id="enterAR" disabled>Passthrough mode</button>
   </div>
-  <p class="status" id="status">Checking for WebXR…</p>
+  <p class="status" id="status">Loading the sandbox…</p>
   <label class="det" for="detail">Simulation detail</label>
   <select id="detail">
     <option value="quest">Quest 2: 256 × 192 cells, 0.63 cm</option>
@@ -107,13 +107,20 @@ select{width:100%;margin-top:4px;font:inherit;background:var(--desk-2);color:var
     </div>
     <p class="foot">The panel above your left hand shows the current tool and water stats.
       In this preview: drag to sculpt, right-drag to orbit, scroll to zoom.
-      <br>Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University. <a href="../">About the project</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
+      <br>Designed by <b>Prof. Xin (Shane) Miao</b>, Missouri State University. <a href="../">About the project</a> · <a href="check.html">Headset check</a> · <a href="../desktop/">Desktop version</a> · Water physics from SARndbox 2.8 by Oliver Kreylos, GPL-2.0-or-later.</p>
   </div>
   <button class="collapse" id="collapse" aria-expanded="true">Hide instructions</button>
 </section>
 
 <script>
+// The headset browser has no visible console, so show any startup error on the page itself.
+(function(){function show(msg){const s=document.getElementById('status');if(s){s.className='status err';s.textContent='Something went wrong: '+msg+' — please send a screenshot of this message.';}}
+  window.addEventListener('error',e=>show((e.message||String(e.error))+(e.lineno?' (line '+e.lineno+')':'')));
+  window.addEventListener('unhandledrejection',e=>show(String(e.reason&&e.reason.message||e.reason)));})();
+</script>
+<script>
 "use strict";
+function boot(){
 /* ============================================================
    AR Sandbox VR — WebXR edition of the Virtual AR Sandbox.
    Units: centimetres and seconds inside the sandbox (as in
@@ -131,7 +138,7 @@ const KD=100/LX;
 const ZMIN=-25,ZMAX=25;
 
 const canvas=$('gl');
-const gl=canvas.getContext('webgl2',{antialias:true,alpha:true,premultipliedAlpha:true,xrCompatible:true});
+const gl=canvas.getContext('webgl2',{antialias:true,alpha:true,premultipliedAlpha:true});   // made XR-compatible only when entering VR
 function setStatus(msg,err){const s=$('status');s.textContent=msg;s.className='status'+(err?' err':'');}
 function fail(msg){setStatus(msg,true);throw new Error(msg);}
 if(!gl) fail('This page needs WebGL2. Use the Meta Quest Browser, or a current Chrome or Edge.');
@@ -942,6 +949,9 @@ requestAnimationFrame(previewFrame);
   $('enterAR').addEventListener('click',()=>startXR('immersive-ar'));
 })();
 window.__sandbox={S,place,handleControllers,stepWorld,loadPreset,get hover(){return hover;},get water(){return waterL;},get steps(){return lastSteps;}};
+}
+// paint the page first, then do the heavy start-up work
+requestAnimationFrame(()=>setTimeout(()=>{try{boot();}catch(e){const st=document.getElementById('status');if(st&&!st.classList.contains('err')){st.className='status err';st.textContent='Could not start: '+e.message;}console.error(e);}},30));
 </script>
 </body>
 </html>

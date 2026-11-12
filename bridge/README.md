@@ -25,7 +25,7 @@ Kinect v1 ──USB──► SandboxBridge.exe ──localhost──► Edge / C
 | Projector | Short-throw works best. Connect it as a second display and set Windows to **Extend** these displays. |
 | Windows 11 PC | Any recent graphics card. Use Edge or Chrome. |
 | Sandbox | About 100 × 75 cm, filled 10–15 cm deep with light-colored sand. |
-| Calibration disk | A CD, or a 12 cm paper disk, taped to the end of a thin stick. |
+| Calibration disk | A CD covered with plain white paper (a bare CD is too shiny for the Kinect), or a 12 cm disk of stiff white card, taped flat to the end of a thin stick about 40 cm long. |
 
 Mount the Kinect and projector about **1 m above the sand**, both looking down at the box.
 
@@ -62,10 +62,10 @@ Mount the Kinect and projector about **1 m above the sand**, both looking down a
    2. Set **Disk radius** to your target's radius (a CD is 6 cm), then click **Start calibration**. Keep the box empty while it measures the sand.
    3. A white crosshair with a green circle appears on the sand. Hold the disk flat so the crosshair lands on the center of the disk.
    4. Keep it still. The circle around the disk in the camera view turns green, and it captures automatically after about a second.
-   5. Do spots 1–12 **low** (about 5 cm above the sand), then spots 13–24 **high** (about 25 cm up, re-centering as you lift).
+   5. Do spots 1–12 **low** (about 5 cm above the sand), then spots 13–24 **high**, at the height the page shows (usually 15–22 cm, so the disk stays more than 80 cm from the Kinect). Re-center as you lift. If a spot isn't detected, read the message under the progress bar.
    6. An average error under about 4 px is good. **Skip this spot** handles spots you can't reach; at least 6 spots are needed.
 
-Settings are saved in `bridge\sandbox-config.json`, so the sandbox is ready the next time you start it.
+Settings are saved in `bridge\sandbox-config.json`, so the sandbox is ready the next time you start it. To start over, use **Erase projector calibration** or **Erase all setup** at the bottom of the Projector step.
 
 ## Use
 

@@ -57,6 +57,7 @@ select{background:var(--desk-2);color:var(--fg);border:1px solid var(--line);bor
 .big{font-size:17px;color:var(--fg)}
 .mono{font-family:var(--f-data);font-size:12.5px}
 .ok{color:var(--ok)}.warn{color:var(--warn)}
+.btn.warnbtn{border-color:var(--warn);color:var(--warn)}
 .stats{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-family:var(--f-data);font-size:12.5px}
 .stats dt{color:var(--muted)}.stats dd{margin:0}
 .bar{height:8px;background:var(--bg);border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--sand);width:0}
@@ -132,8 +133,9 @@ details.more summary{cursor:pointer;color:var(--muted);font-weight:600}
       <h2>Calibrate the projector</h2>
       <ol class="how">
         <li>Click <b>Open projector window</b>, move it to the projector, and click <b>Go full screen</b> there.</li>
-        <li>Make a target: a <b>CD or a 12 cm paper disk</b> taped to the end of a thin stick.</li>
-        <li>The projector shows a crosshair. Hold the disk flat so the crosshair lands on its center. Keep still; it captures automatically. Do each spot <b>low</b> (just above the sand), then the second round <b>high</b> (about 25 cm up).</li>
+        <li>Make a target: a <b>CD covered with plain white paper</b> (or a 12 cm disk of stiff white card) taped flat to the end of a thin stick, about 40 cm long. The Kinect cannot measure a shiny CD surface.</li>
+        <li>Click <b>Start calibration</b> with the box empty. The projector shows a crosshair. Hold the disk <b>flat</b>, by the end of the stick, so the crosshair lands on its center. Keep your hand and arm away from the disk.</li>
+        <li>Hold still. When the circle in the camera view turns green, it captures by itself. Do each spot <b id="lowHint">low (about 5 cm above the sand)</b>, then the second round <b id="highHint">high</b>. Skip spots outside the box or out of the camera's view.</li>
       </ol>
       <div class="row"><label for="diskR">Disk radius</label><output id="diskRo"></output><input type="range" id="diskR" min="3" max="12" step="0.5" value="6"></div>
       <div class="box">
@@ -148,6 +150,10 @@ details.more summary{cursor:pointer;color:var(--muted);font-weight:600}
         <button class="btn" id="calFinish" disabled>Finish and save</button>
       </div>
       <label class="check"><input type="checkbox" id="calAuto" checked> Capture automatically when the disk is still</label>
+      <div class="box" style="margin-top:14px">
+        <p><b>Start over.</b> Erase the saved calibration to set the sandbox up again from scratch.</p>
+        <div class="btns"><button class="btn" id="eraseProj">Erase projector calibration</button><button class="btn" id="eraseAll">Erase all setup (box and projector)</button></div>
+      </div>
     </div>
 
     <!-- 4. Run -->
@@ -317,7 +323,7 @@ function fitBasePlane(){
   CFG.plane={n:pl.n,d:pl.d};CFG.corners=null;cornersTmp=[];Kplane=null;
   const tiltDeg=Math.acos(Math.abs(pl.n[2]))*180/Math.PI;
   $('planeMsg').innerHTML=`Base plane ${pl.d.toFixed(1)} cm from the camera, tilted ${tiltDeg.toFixed(1)}°. Flatness ${rms.toFixed(2)} cm RMS.`+(rms>1.5?' <span class="warn">The sand isn\'t very flat; flatten it more and capture again for best results.</span>':'');
-  updateCornerUI();}
+  updateCornerUI();updateHeightHints();}
 let cornersTmp=[];
 dc.addEventListener('click',e=>{if(step!=='box'||!CFG.plane||cornersTmp.length>=4)return;const r=dc.getBoundingClientRect();
   const x=(e.clientX-r.left)/r.width*640,y=(e.clientY-r.top)/r.height*480;cornersTmp.push([x,y]);updateCornerUI();});
@@ -340,10 +346,14 @@ $('saveBox').addEventListener('click',async()=>{const corners=cornersTmp.map(p=>
 
 /* ---------------- Step 3: projector calibration (CalibrateProjector port) ---------------- */
 const TARGETS=[];for(const hgt of ['low','high'])for(const v of [0.2,0.5,0.8])for(const u of [0.15,0.38,0.62,0.85])TARGETS.push({u,v,hgt});
-const calib={active:false,i:0,pairs:[],bg:null,bgN:0,bgCnt:null,hist:[],det:null,stableSince:0,lastCapture:null,px:null};
+const calib={active:false,i:0,pairs:[],bg:null,bgN:0,bgCnt:null,hist:[],det:null,stableSince:0,lastCapture:null,px:null,why:''};
+// Disk heights for the two rounds. The Kinect v1 cannot measure anything closer than 80 cm,
+// so the high round must stay below (camera height − 85 cm).
+function calHeights(){const camH=CFG.plane?Math.abs(CFG.plane.d):110;const high=Math.round(Math.max(8,Math.min(25,camH-88)));return {low:5,high,camH};}
+function updateHeightHints(){const h=calHeights();$('lowHint').textContent=`low (about ${h.low} cm above the sand)`;$('highHint').textContent=`high (about ${h.high} cm above the sand)`;}
 setupRange('diskR',v=>v.toFixed(1)+' cm',()=>{});
 function calibPrompt(){if(calib.bg===null)return 'Measuring the sand. Keep the disk and your hands out of the box…';const t=TARGETS[calib.i];if(!t)return 'Done';
-  return `Spot ${calib.i+1} of ${TARGETS.length}: hold the disk ${t.hgt==='low'?'low, just above the sand':'high, about 25 cm up'} on the crosshair`;}
+  const h=calHeights();return `Spot ${calib.i+1} of ${TARGETS.length}: hold the disk flat, ${t.hgt==='low'?`low, about ${h.low} cm above the sand`:`high, about ${h.high} cm above the sand`}, on the crosshair`;}
 $('calStart').addEventListener('click',()=>{Object.assign(calib,{active:true,i:0,pairs:[],bg:null,bgN:0,hist:[],det:null,stableSince:0,lastCapture:null,px:null});
   calib.bgSum=new Float64Array(640*480);calib.bgCnt=new Uint16Array(640*480);
   ['calCapture','calSkip','calFinish'].forEach(id=>$(id).disabled=false);$('calStart').disabled=true;
@@ -355,16 +365,16 @@ bc.onmessage=e=>{const m=e.data;if(!m)return;
   if(m.type==='hello'){projector.W=m.W;projector.H=m.H;projector.last=performance.now();sendSettings();}
   if(m.type==='stats'){projector.stats=m;projector.last=performance.now();}
   if(m.type==='targetPx'&&calib.active&&m.i===calib.i){calib.px=m;
-    if(sim){const t=TARGETS[calib.i];sim.postMessage({type:'disk',on:true,x:m.x,y:m.y,W:m.W,H:m.H,h:t.hgt==='low'?5:25,r:parseFloat($('diskR').value)});}}};
+    if(sim){const t=TARGETS[calib.i];sim.postMessage({type:'disk',on:true,x:m.x,y:m.y,W:m.W,H:m.H,h:t.hgt==='low'?calHeights().low:calHeights().high,r:parseFloat($('diskR').value)});}}};
 function calibFrame(depth){
   if(calib.bg===null){for(let i=0;i<depth.length;i++){const v=depth[i];if(v){calib.bgSum[i]+=v;calib.bgCnt[i]++;}}
     if(++calib.bgN>=15){calib.bg=new Float32Array(640*480);for(let i=0;i<calib.bg.length;i++)calib.bg[i]=calib.bgCnt[i]?calib.bgSum[i]/calib.bgCnt[i]:0;showTarget();}return;}
   const det=detectDisk(depth);calib.det=det;const now=performance.now();
-  if(!det){calib.hist=[];calib.stableSince=0;$('calDetail').textContent='No disk seen above the sand.';return;}
+  if(!det){calib.hist=[];calib.stableSince=0;$('calDetail').textContent=calib.why||'No disk seen above the sand.';return;}
   calib.hist.push(det.c);if(calib.hist.length>12)calib.hist.shift();
   const mean=calib.hist.reduce((a,c)=>V.add(a,c),[0,0,0]).map(v=>v/calib.hist.length);
   const spread=Math.max(...calib.hist.map(c=>V.len(V.sub(c,mean))));
-  det.stable=calib.hist.length>=8&&spread<0.4;
+  det.stable=calib.hist.length>=8&&spread<0.6;
   const movedOn=!calib.lastCapture||V.len(V.sub(mean,calib.lastCapture))>3;
   if(det.stable&&movedOn&&calib.px){if(!calib.stableSince)calib.stableSince=now;}else calib.stableSince=0;
   const height=CFG.plane?V.dot(CFG.plane.n,mean)+CFG.plane.d:0;
@@ -372,21 +382,32 @@ function calibFrame(depth){
   if($('calAuto').checked&&calib.stableSince&&now-calib.stableSince>1000)capture(mean);
 }
 function detectDisk(depth){
-  // pixels well above the measured sand (≥ 2.5 cm), sampled on a 2-pixel grid, then eroded so thin sticks drop out
-  const bw=320,bh=240,mask=new Uint8Array(bw*bh),bg=calib.bg;
-  for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const i=(y*2)*640+x*2,v=depth[i],b=bg[i];if(v&&b&&b-v>25)mask[y*bw+x]=1;}
+  // pixels at least 2.5 cm above the measured sand, on a 2-pixel grid, eroded so thin sticks drop out
+  const bw=320,bh=240,mask=new Uint8Array(bw*bh),bg=calib.bg;let lost=0;
+  for(let y=0;y<bh;y++)for(let x=0;x<bw;x++){const i=(y*2)*640+x*2,v=depth[i],b=bg[i];if(v&&b&&b-v>25)mask[y*bw+x]=1;else if(!v&&b)lost++;}
   const er=new Uint8Array(bw*bh);for(let y=1;y<bh-1;y++)for(let x=1;x<bw-1;x++){const k=y*bw+x;er[k]=mask[k]&&mask[k-1]&&mask[k+1]&&mask[k-bw]&&mask[k+bw];}
-  const lab=new Int32Array(bw*bh);let best=null,id=0;const st=[];
+  const lab=new Int32Array(bw*bh);let id=0;const st=[],comps=[];
   for(let s=0;s<bw*bh;s++){if(!er[s]||lab[s])continue;id++;const cells=[];st.push(s);lab[s]=id;
     while(st.length){const k=st.pop();cells.push(k);for(const t of [k-1,k+1,k-bw,k+bw])if(t>=0&&t<bw*bh&&er[t]&&!lab[t]){lab[t]=id;st.push(t);}}
-    if(!best||cells.length>best.length)best=cells;}
-  if(!best||best.length<20)return null;
-  let pts=best.map(k=>{const x=(k%bw)*2,y=((k/bw)|0)*2;return SBX.point(cam,x,y,depth[y*640+x]*0.1);});
-  const R=parseFloat($('diskR').value);let c=pts.reduce((a,p)=>V.add(a,p),[0,0,0]).map(v=>v/pts.length);
-  for(let it=0;it<5;it++){const near=pts.filter(p=>V.len(V.sub(p,c))<R*1.15);if(near.length<10)return null;c=near.reduce((a,p)=>V.add(a,p),[0,0,0]).map(v=>v/near.length);if(it===4)pts=near;}
-  const rpx=R/c[2]*cam.fx;const expected=Math.PI*rpx*rpx/4;   // cells on the 2-pixel grid
-  if(pts.length<expected*0.35)return null;
-  return {c,points:pts.length,rpx};}
+    if(cells.length>=12)comps.push(cells);}
+  const R=parseFloat($('diskR').value);let best=null,bestFill=0;
+  // try each object above the sand (largest first) and keep the one that looks most like a flat disk of radius R
+  comps.sort((a,b)=>b.length-a.length);
+  for(const cells of comps.slice(0,6)){
+    let pts=cells.map(k=>{const x=(k%bw)*2,y=((k/bw)|0)*2;return SBX.point(cam,x,y,depth[y*640+x]*0.1);});
+    let c=pts.reduce((a,p)=>V.add(a,p),[0,0,0]).map(v=>v/pts.length),ok=true;
+    for(let it=0;it<6;it++){const near=pts.filter(p=>V.len(V.sub(p,c))<R*1.15);if(near.length<8){ok=false;break;}
+      c=near.reduce((a,p)=>V.add(a,p),[0,0,0]).map(v=>v/near.length);if(it===5)pts=near;}
+    if(!ok)continue;
+    const rpx=R/c[2]*cam.fx,expected=Math.PI*rpx*rpx/4,fill=pts.length/expected;   // share of the disk's area that has depth
+    if(fill>bestFill){bestFill=fill;best={c,points:pts.length,rpx,fill};}}
+  const lostShare=lost/(bw*bh);
+  if(best&&bestFill>=0.3){calib.why='';return best;}
+  calib.why=best?`Something is above the sand, but only ${Math.round(bestFill*100)}% of a ${R} cm disk is visible. Hold it flat, cover a shiny CD with white paper, and check Disk radius.`
+    :comps.length?`Something is above the sand, but it doesn't look like a ${R} cm disk. Hold the disk away from your hand and arm.`
+    :lostShare>0.01?`Something is too close for the Kinect to measure (closer than 80 cm to the camera). Hold the disk lower, about ${calHeights().high} cm above the sand at most.`
+    :'No disk seen. Hold it at least 3 cm above the sand, under the crosshair.';
+  return null;}
 function capture(P){if(!calib.px)return;const q={P,u:calib.px.x,v:calib.px.y,W:calib.px.W,H:calib.px.H};calib.pairs.push(q);calib.lastCapture=P;calib.i++;showTarget();}
 $('calCapture').addEventListener('click',()=>{if(calib.det&&calib.hist.length)capture(calib.hist.reduce((a,c)=>V.add(a,c),[0,0,0]).map(v=>v/calib.hist.length));});
 $('calSkip').addEventListener('click',()=>{calib.i++;showTarget();});
@@ -400,6 +421,23 @@ async function finishCalib(){
   const where=await SBX.saveConfig(CFG);bc.postMessage({type:'cmd',name:'reload'});
   $('calMsg').innerHTML=`Calibrated from ${calib.pairs.length} spots. Average error <b class="${sol.rms<4?'ok':'warn'}">${sol.rms.toFixed(1)} px</b>`+(sol.rms<4?'.':'; try again with steadier, flatter disk placements.');
   $('calBar').style.width='100%';toast(`Calibration saved to ${where}.`);calib.pairs=[];}
+
+function confirmTwice(btn,label,run){let armed=0;btn.addEventListener('click',async()=>{
+  if(Date.now()-armed>4000){armed=Date.now();btn.textContent='Click again to erase';btn.classList.add('warnbtn');setTimeout(()=>{if(Date.now()-armed>=3900){btn.textContent=label;btn.classList.remove('warnbtn');}},4000);return;}
+  armed=0;btn.textContent=label;btn.classList.remove('warnbtn');await run();});}
+async function eraseSetup(all){
+  if(calib.active){bc.postMessage({type:'calib',on:false});if(sim)sim.postMessage({type:'disk',on:false});}
+  Object.assign(calib,{active:false,i:0,pairs:[],bg:null,det:null,hist:[],stableSince:0,lastCapture:null,px:null,why:''});
+  ['calCapture','calSkip','calFinish'].forEach(id=>$(id).disabled=true);$('calStart').disabled=false;$('calBar').style.width='0%';$('calDetail').textContent='';
+  CFG.projector=null;
+  if(all){CFG.plane=null;CFG.corners=null;CFG.cornerPx=null;CFG.box=null;cornersTmp=[];Kplane=null;
+    $('planeMsg').textContent='No base plane yet.';$('cornerMsg').textContent='Capture the base plane first.';$('saveBox').disabled=true;updateCornerUI();}
+  const where=await SBX.saveConfig(CFG);bc.postMessage({type:'cmd',name:'reload'});markDone();updateHeightHints();
+  $('calMsg').textContent=all?'All setup erased. Start again at step 2 (Box).':'Projector calibration erased. Click Start calibration to do it again.';
+  toast((all?'Box and projector setup':'Projector calibration')+` erased (${where}).`);
+  if(all)showStep('box');}
+confirmTwice($('eraseProj'),'Erase projector calibration',()=>eraseSetup(false));
+confirmTwice($('eraseAll'),'Erase all setup (box and projector)',()=>eraseSetup(true));
 
 /* ---------------- Step 4: run settings (sent to the projector window) ---------------- */
 const S={cmap:'sarndbox',contours:true,cint:0.75,shade:true,sea:0,wcolor:0,speed:1,evap:0,dry:1,rainRate:0.25,paused:false,holdRain:false,holdDrain:false,handRain:true};
@@ -452,7 +490,7 @@ $('openProj').addEventListener('click',async()=>{
   else if(!st){chip('chipBridge','bad','Bridge not running');$('simLink').hidden=false;
     $('camMsg').innerHTML='<span class="warn">The bridge isn\'t running.</span> Start <b>SandboxBridge.exe</b> and open this page from the address it shows (http://localhost:8765/physical/).';}
   else{chip('chipBridge','ok','Bridge');$('camMsg').innerHTML=st.error?`<span class="warn">${st.error}</span>`:`Connected to <b>${st.camera}</b>.`;if(st.error)$('simLink').hidden=false;}
-  markDone();
+  markDone();updateHeightHints();
 })();
 window.__ctl={CFG:()=>CFG,calib,targets:TARGETS,cornersTmp:()=>cornersTmp,setCorners:a=>{cornersTmp=a.slice();updateCornerUI();},S,get frames(){return frames;},showStep};
 </script>

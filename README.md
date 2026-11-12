@@ -99,6 +99,8 @@ The control page has four tabs: **1 Camera → 2 Box → 3 Projector → 4 Run**
 
 Calibration teaches the computer how a point the Kinect sees lines up with a pixel the projector draws, so the colors land exactly on the sand.
 
+**Make the target first.** Cover a CD with **plain white paper** (or cut a 12 cm disk of stiff white card) and tape it **flat** to the end of a thin stick about 40 cm long. The Kinect measures distance with infrared light, and a bare, shiny CD reflects it away, so the disk shows up as a hole instead of a solid circle. Hold the stick by its far end so your hand and arm stay away from the disk.
+
 1. **Open the projector window:** click **Open projector window** (top right of the control page). If it opens on your monitor, drag it onto the projector's screen. Then click **Go full screen** in that window.
 2. **Set the disk size:** on the **Projector** tab, set **Disk radius** to your target's radius (a CD is 6 cm).
 3. **Start:** click **Start calibration**. For about a second, keep the box empty while it measures the sand.
@@ -108,18 +110,23 @@ Calibration teaches the computer how a point the Kinect sees lines up with a pix
    - Hold it **still**. In the camera view, the circle around the disk turns from yellow to **green**.
    - After about a second it **captures automatically** and the crosshair moves to the next spot.
 5. **Do two rounds:**
-   - **Spots 1–12: low.** Hold the disk about 5 cm above the sand.
-   - **Spots 13–24: high.** Hold it about 25 cm above the sand, and re-center it as you lift. The two heights let the projection follow hills and valleys.
+   - **Spots 1–12: low.** Hold the disk about **5 cm** above the sand (at least 3 cm, or it can't be told apart from the sand).
+   - **Spots 13–24: high.** The page shows the right height for your setup, usually **15–22 cm** above the sand. It keeps the disk more than 80 cm from the Kinect, which can't measure anything closer. Re-center it as you lift. The two heights let the projection follow hills and valleys.
 6. **Check the result:** after the last spot it calculates and shows an **average error**. Under about 4 px is good. The projector window restarts, and the map now sits right on the sand.
 
 | During calibration | What to do |
 |---|---|
 | **Start calibration** is grayed out | Open the projector window, and finish step 2 first. |
 | No crosshair on the sand | The projector window isn't on the projector, or isn't full screen. |
-| "No disk seen above the sand" | Hold the disk flat, facing up, a little lower. The Kinect can't see closer than about 80 cm from the camera. |
+| The page explains what it sees under the progress bar | Follow that message. The common ones are below. |
+| "No disk seen" | Hold the disk at least 3 cm above the sand, right under the crosshair. |
+| "Only N% of a 6 cm disk is visible" | Hold it flat. Cover a shiny CD with white paper. Check that **Disk radius** matches your disk. |
+| "It doesn't look like a 6 cm disk" | Your hand or arm is touching the disk in the camera's view. Hold the stick by its far end. |
+| "Too close for the Kinect to measure" | Hold the disk lower. Anything closer than 80 cm to the camera has no depth. |
 | The circle stays yellow ("hold still") | Steady your arm, or click **Capture now** when the crosshair is centered. |
 | A spot can't be reached | Click **Skip this spot**. At least 6 spots are needed; 12 or more is better. |
 | Error above about 8 px, or colors are off | Calibrate again with the disk flatter and steadier. Make sure the Kinect and projector didn't move. |
+| Want to start over | At the bottom of the **Projector** tab, click **Erase projector calibration**, or **Erase all setup (box and projector)**. Click twice to confirm. |
 
 ### Everyday use
 
@@ -139,6 +146,8 @@ Calibration teaches the computer how a point the Kinect sees lines up with a pix
 | The Kinect was bumped or remounted | Steps 2 and 3 |
 | The projector moved, or its zoom, focus or resolution changed | Step 3 |
 | The box moved, or the sand level changed a lot | Step 2 |
+
+To start fresh, use the **Erase** buttons at the bottom of the **Projector** tab: one clears just the projector calibration, the other also clears the base plane and box corners.
 
 When you download a new version of this repository, copy your **`bridge\sandbox-config.json`** into the new `bridge` folder to keep your calibration.
 
